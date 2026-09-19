@@ -1,0 +1,9 @@
+# Copy to `local.properties` (gitignored) and point at your local SDKs.
+# `flutter create` normally generates this automatically the first
+# time you run `flutter pub get` in this project — this example exists
+# because that command has never been run in the environment that
+# built this scaffold (see docs/ANDROID_RELEASE.md).
+sdk.dir=/absolute/path/to/Android/sdk
+flutter.sdk=/absolute/path/to/flutter
+flutter.versionName=1.0.0
+flutter.versionCode=1

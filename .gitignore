@@ -1,0 +1,19 @@
+# Backend
+.venv/
+__pycache__/
+*.pyc
+.env
+
+# Flutter
+frontend/mindora_app/.dart_tool/
+frontend/mindora_app/build/
+frontend/mindora_app/.flutter-plugins*
+frontend/mindora_app/*.g.dart
+
+# Android signing — never commit a real keystore or its credentials
+frontend/mindora_app/android/key.properties
+frontend/mindora_app/android/local.properties
+frontend/mindora_app/android/**/*.jks
+frontend/mindora_app/android/**/*.keystore
+
+.DS_Store

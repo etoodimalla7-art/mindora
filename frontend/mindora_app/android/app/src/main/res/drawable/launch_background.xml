@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Section 70: the splash screen must be swappable via brand config
+     without touching architecture. Real deployments should replace
+     this with flutter_native_splash's generated output (see
+     docs/ANDROID_RELEASE.md) driven by BrandConfig.splashAssetPath —
+     this is the plain solid-color placeholder in the meantime, never
+     a default Flutter template look. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@android:color/white" />
+</layer-list>

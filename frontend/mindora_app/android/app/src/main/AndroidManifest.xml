@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Every network call this app makes (auth, chat, uploads, etc.). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Phase 13's voice input (the `record` package). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Phase 13's vision/camera-capture input and document photo
+         uploads (`image_picker` with ImageSource.camera). Declaring
+         this explicitly (rather than relying only on image_picker's
+         merged manifest) keeps the requirement visible here, next to
+         every other permission this app actually uses. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- Declares the app doesn't require a physical camera to be
+         installed — some low-end/tablet devices in the target market
+         may not have one, and vision mode is an enhancement, not a
+         hard requirement (OCR/text input still work without it). -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <application
+        android:label="MINDORA"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+</manifest>

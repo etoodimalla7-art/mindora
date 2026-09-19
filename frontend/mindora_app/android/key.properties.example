@@ -1,0 +1,10 @@
+# Copy this file to `key.properties` (same directory) and fill in real
+# values after generating an upload keystore — see
+# docs/ANDROID_RELEASE.md for the exact keytool command. NEVER commit
+# the real key.properties or the .jks/.keystore file it points to;
+# both are gitignored (see the entries added to android/.gitignore
+# and this repo's root .gitignore in this same phase).
+storePassword=REPLACE_ME
+keyPassword=REPLACE_ME
+keyAlias=upload
+storeFile=/absolute/path/to/upload-keystore.jks

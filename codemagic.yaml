@@ -1,0 +1,22 @@
+workflows:
+  android-apk:
+    name: MINDORA — Android APK (unsigned/debug-signed, for testing)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      flutter: stable
+      # Set this in Codemagic's UI under Environment variables once
+      # the backend is deployed somewhere public — see docs/DEPLOYING.md.
+      # Until then the app builds and installs fine, but API calls
+      # (login, chat, everything) will fail with no reachable backend.
+      vars:
+        API_BASE_URL: "http://10.0.2.2:8000/api/v1"
+    working_directory: frontend/mindora_app
+    scripts:
+      - name: Get Flutter packages
+        script: flutter pub get
+      - name: Build release APK
+        script: |
+          flutter build apk --release --dart-define=API_BASE_URL=$API_BASE_URL
+    artifacts:
+      - frontend/mindora_app/build/app/outputs/**/*.apk
