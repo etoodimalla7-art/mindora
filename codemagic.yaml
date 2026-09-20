@@ -1,22 +1,35 @@
 workflows:
-  android-apk:
-    name: MINDORA — Android APK (unsigned/debug-signed, for testing)
+  android-apk-debug:
+    name: MINDORA — Android APK debug validation
     max_build_duration: 60
-    instance_type: mac_mini_m2
-    environment:
-      flutter: stable
-      # Set this in Codemagic's UI under Environment variables once
-      # the backend is deployed somewhere public — see docs/DEPLOYING.md.
-      # Until then the app builds and installs fine, but API calls
-      # (login, chat, everything) will fail with no reachable backend.
-      vars:
-        API_BASE_URL: "http://10.0.2.2:8000/api/v1"
+    instance_type: linux_x2
     working_directory: frontend/mindora_app
+    environment:
+      flutter: 3.41.0
+      java: 17
+      ubuntu: 24.04
+      vars:
+        # Emulator-only development default. Override this in Codemagic with
+        # the deployed HTTPS backend URL for functional builds.
+        API_BASE_URL: "http://10.0.2.2:8000/api/v1"
+    cache:
+      cache_paths:
+        - $FLUTTER_ROOT/.pub-cache
+        - $HOME/.gradle/caches
     scripts:
+      - name: Verify pinned Flutter toolchain
+        script: |
+          flutter --version
+          dart --version
       - name: Get Flutter packages
         script: flutter pub get
-      - name: Build release APK
+      - name: Analyze Flutter project
+        script: flutter analyze --no-fatal-infos --no-fatal-warnings
+      - name: Run Flutter tests
+        script: flutter test
+      - name: Build debug APK
         script: |
-          flutter build apk --release --dart-define=API_BASE_URL=$API_BASE_URL
+          flutter build apk --debug --dart-define=API_BASE_URL=$API_BASE_URL
     artifacts:
+      - frontend/mindora_app/build/app/outputs/flutter-apk/app-debug.apk
       - frontend/mindora_app/build/app/outputs/**/*.apk

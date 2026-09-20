@@ -1,0 +1,82 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withReader("UTF-8") { reader -> localProperties.load(reader) }
+}
+
+def flutterVersionCode = localProperties.getProperty("flutter.versionCode")
+if (flutterVersionCode == null) { flutterVersionCode = "1" }
+def flutterVersionName = localProperties.getProperty("flutter.versionName")
+if (flutterVersionName == null) { flutterVersionName = "1.0" }
+
+// Section 20/70's own instruction — branding (including the eventual
+// real applicationId) is a placeholder until the app is actually
+// named. `com.example.*` is Flutter's own convention for an
+// unconfigured org and CANNOT be published to Play Store as-is —
+// change this before any real release, not just before this app's
+// final name is chosen.
+def releaseKeystoreProperties = new Properties()
+def releaseKeystorePropertiesFile = rootProject.file("key.properties")
+def hasReleaseSigningConfig = releaseKeystorePropertiesFile.exists()
+if (hasReleaseSigningConfig) {
+    releaseKeystorePropertiesFile.withReader("UTF-8") { reader -> releaseKeystoreProperties.load(reader) }
+}
+
+android {
+    namespace "com.example.mindora_app"
+    compileSdkVersion 36
+    ndkVersion flutter.ndkVersion
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    defaultConfig {
+        applicationId "com.example.mindora_app"
+        // Flutter 3.41 raises its Android engine floor to API 24.
+        minSdkVersion 24
+        targetSdkVersion 36
+        versionCode flutterVersionCode.toInteger()
+        versionName flutterVersionName
+    }
+
+    signingConfigs {
+        if (hasReleaseSigningConfig) {
+            release {
+                keyAlias releaseKeystoreProperties["keyAlias"]
+                keyPassword releaseKeystoreProperties["keyPassword"]
+                storeFile releaseKeystoreProperties["storeFile"] ? file(releaseKeystoreProperties["storeFile"]) : null
+                storePassword releaseKeystoreProperties["storePassword"]
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            // Falls back to the debug signing config when key.properties
+            // doesn't exist yet, so `flutter build apk --release` still
+            // works for local testing before a real upload keystore is
+            // generated — see docs/ANDROID_RELEASE.md. Never ship a
+            // build actually signed with the debug key.
+            signingConfig hasReleaseSigningConfig ? signingConfigs.release : signingConfigs.debug
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+        }
+    }
+}
+
+flutter {
+    source "../.."
+}
