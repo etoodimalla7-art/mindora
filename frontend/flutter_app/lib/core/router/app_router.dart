@@ -6,6 +6,7 @@ import '../../features/home/presentation/home_screen.dart';
 import '../../features/onboarding/presentation/onboarding_screen.dart';
 import '../../features/shell/presentation/app_shell.dart';
 import '../../features/splash/presentation/splash_screen.dart';
+import '../../features/styleguide/presentation/styleguide_screen.dart';
 import 'routes.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
@@ -22,6 +23,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.onboarding,
         name: 'onboarding',
         builder: (_, __) => const OnboardingScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.styleguide,
+        name: 'styleguide',
+        builder: (_, __) => const StyleguideScreen(),
       ),
       ShellRoute(
         builder: (context, state, child) => AppShell(child: child),
