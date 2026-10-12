@@ -8,4 +8,7 @@ class AppRoutes {
   static const String planner = '/planner';
   static const String learn = '/learn';
   static const String profile = '/profile';
+
+  /// Debug-only. Not reachable from the UI.
+  static const String styleguide = '/styleguide';
 }
