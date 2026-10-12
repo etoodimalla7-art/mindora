@@ -1,152 +1,163 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/config/app_config.dart';
 import '../../../core/design/tokens/app_spacing.dart';
 import '../../../core/design/widgets/widgets.dart';
+import '../../../core/locale/locale_provider.dart';
 import '../../../core/router/routes.dart';
+import '../../../l10n/app_strings.dart';
+import '../state/onboarding_state.dart';
+import '../state/onboarding_submitter.dart';
+import 'steps/step_catalogue.dart';
+import 'steps/step_country.dart';
+import 'steps/step_education_system.dart';
+import 'steps/step_exam_date.dart';
+import 'steps/step_goal.dart';
+import 'steps/step_language.dart';
+import 'steps/step_level.dart';
+import 'steps/step_notifications.dart';
+import 'steps/step_personalize.dart';
+import 'steps/step_program.dart';
+import 'steps/step_study_times.dart';
+import 'steps/step_subjects.dart';
+import 'steps/step_welcome_done.dart';
 
-class OnboardingScreen extends StatefulWidget {
+class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({super.key});
 
   @override
-  State<OnboardingScreen> createState() => _OnboardingScreenState();
+  ConsumerState<OnboardingScreen> createState() => _OnboardingScreenState();
 }
 
-class _OnboardingScreenState extends State<OnboardingScreen> {
-  final _controller = PageController();
-  int _index = 0;
-
-  final _pages = const [
-    _OnboardPage(
-      icon: Icons.auto_awesome_outlined,
-      title: 'Study with an AI tutor',
-      body: 'Ask questions, upload courses, and get explanations tuned to your level.',
-    ),
-    _OnboardPage(
-      icon: Icons.event_note_outlined,
-      title: 'Plan for your exams',
-      body: 'Tell us your exam date and subjects. We build the roadmap for you.',
-    ),
-    _OnboardPage(
-      icon: Icons.insights_outlined,
-      title: 'See your readiness',
-      body: 'Track topic mastery and know exactly what to study next.',
-    ),
+class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
+  final _steps = const [
+    OnboardingStep.language,
+    OnboardingStep.country,
+    OnboardingStep.educationSystem,
+    OnboardingStep.level,
+    OnboardingStep.program,
+    OnboardingStep.subjects,
+    OnboardingStep.goal,
+    OnboardingStep.examDate,
+    OnboardingStep.studyTimes,
+    OnboardingStep.notifications,
+    OnboardingStep.personalize,
+    OnboardingStep.done,
   ];
 
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
+  int _index = 0;
+  bool _submitting = false;
 
-  void _next() {
-    if (_index < _pages.length - 1) {
-      _controller.nextPage(
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOutCubic,
-      );
-    } else {
+  void _next() async {
+    if (_index < _steps.length - 1) {
+      setState(() => _index++);
+      return;
+    }
+    // Finish
+    setState(() => _submitting = true);
+    try {
+      final draft = ref.read(onboardingProvider);
+      await ref.read(onboardingSubmitterProvider).submit(draft);
+      if (!mounted) return;
       context.go(AppRoutes.home);
+    } finally {
+      if (mounted) setState(() => _submitting = false);
     }
   }
 
+  void _back() {
+    if (_index > 0) setState(() => _index--);
+  }
+
+  Widget _buildStep(OnboardingStep step) => switch (step) {
+        OnboardingStep.language => const StepLanguage(),
+        OnboardingStep.country => const StepCountry(),
+        OnboardingStep.educationSystem => const StepEducationSystem(),
+        OnboardingStep.level => const StepLevel(),
+        OnboardingStep.program => const StepProgram(),
+        OnboardingStep.subjects => const StepSubjects(),
+        OnboardingStep.goal => const StepGoal(),
+        OnboardingStep.examDate => const StepExamDate(),
+        OnboardingStep.studyTimes => const StepStudyTimes(),
+        OnboardingStep.notifications => const StepNotifications(),
+        OnboardingStep.personalize => const StepPersonalize(),
+        OnboardingStep.done => const StepWelcomeDone(),
+      };
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isLast = _index == _pages.length - 1;
+    final s = AppStrings.of(context);
+    final step = _steps[_index];
+    final progress = (_index + 1) / _steps.length;
 
     return Scaffold(
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.xxl),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Align(
-                alignment: Alignment.centerRight,
-                child: TextButton(
-                  onPressed: () => context.go(AppRoutes.home),
-                  child: const Text('Skip'),
-                ),
-              ),
-              Expanded(
-                child: PageView.builder(
-                  controller: _controller,
-                  itemCount: _pages.length,
-                  onPageChanged: (i) => setState(() => _index = i),
-                  itemBuilder: (_, i) => _pages[i],
-                ),
-              ),
+              // Progress bar + skip
               Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(_pages.length, (i) {
-                  final active = i == _index;
-                  return AnimatedContainer(
-                    duration: const Duration(milliseconds: 220),
-                    margin: const EdgeInsets.symmetric(horizontal: 4),
-                    width: active ? 22 : 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: active
-                          ? theme.colorScheme.primary
-                          : theme.colorScheme.outline,
+                children: [
+                  if (_index > 0)
+                    IconButton(
+                      onPressed: _back,
+                      icon: const Icon(Icons.arrow_back),
+                      tooltip: s.back,
+                    )
+                  else
+                    const SizedBox(width: 48),
+                  Expanded(
+                    child: ClipRRect(
                       borderRadius: BorderRadius.circular(999),
+                      child: TweenAnimationBuilder<double>(
+                        tween: Tween(begin: 0, end: progress),
+                        duration: const Duration(milliseconds: 240),
+                        builder: (_, v, __) => LinearProgressIndicator(
+                          value: v,
+                          minHeight: 6,
+                          backgroundColor:
+                              Theme.of(context).colorScheme.outline.withValues(alpha: 0.25),
+                        ),
+                      ),
                     ),
-                  );
-                }),
+                  ),
+                  const SizedBox(width: 12),
+                  TextButton(
+                    onPressed: () => context.go(AppRoutes.home),
+                    child: Text(s.skip),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.xxxl),
+
+              Text(step.title(s), style: Theme.of(context).textTheme.headlineSmall),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                step.subtitle(s),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withValues(alpha: 0.65),
+                    ),
               ),
               const SizedBox(height: AppSpacing.xl),
+
+              Expanded(child: _buildStep(step)),
+
+              const SizedBox(height: AppSpacing.lg),
               AppButton(
-                label: isLast ? 'Get started' : 'Continue',
-                onPressed: _next,
-                icon: isLast ? Icons.arrow_forward : null,
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              Text(
-                '${AppConfig.appName} · v${AppConfig.appVersion}',
-                style: theme.textTheme.labelSmall,
+                label: _index == _steps.length - 1 ? s.finish : s.continueLabel,
+                loading: _submitting,
+                onPressed: _submitting ? null : _next,
               ),
             ],
           ),
         ),
       ),
-    );
-  }
-}
-
-class _OnboardPage extends StatelessWidget {
-  const _OnboardPage({required this.icon, required this.title, required this.body});
-
-  final IconData icon;
-  final String title;
-  final String body;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(28),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.primary.withValues(alpha: 0.08),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(icon, size: 44, color: theme.colorScheme.primary),
-        ),
-        const SizedBox(height: AppSpacing.xxxl),
-        Text(title, style: theme.textTheme.headlineMedium, textAlign: TextAlign.center),
-        const SizedBox(height: AppSpacing.md),
-        Text(
-          body,
-          textAlign: TextAlign.center,
-          style: theme.textTheme.bodyLarge?.copyWith(
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.68),
-          ),
-        ),
-      ],
     );
   }
 }
