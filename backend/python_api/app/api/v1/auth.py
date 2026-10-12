@@ -1,7 +1,7 @@
 """Auth routes."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, Request, Response, status
 
 from app.api.deps import SessionDep
 from app.schemas.auth import (
@@ -56,6 +56,7 @@ async def refresh(payload: RefreshRequest, request: Request, session: SessionDep
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(payload: RefreshRequest, session: SessionDep) -> None:
+async def logout(payload: RefreshRequest, session: SessionDep) -> Response:
     svc = AuthService(session)
     await svc.logout(refresh_token=payload.refresh_token)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
