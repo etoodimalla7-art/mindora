@@ -10,5 +10,8 @@ class AppRoutes {
   static const String profile = '/profile';
 
   /// Debug-only. Not reachable from the UI.
+  static const String login = '/login';
+
+  /// Debug-only. Not reachable from the UI.
   static const String styleguide = '/styleguide';
 }

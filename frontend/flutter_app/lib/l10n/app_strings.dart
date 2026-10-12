@@ -51,6 +51,11 @@ class AppStrings {
       );
 
   // Wizard steps
+  String get stepAccount => _t('Create your account', 'Créez votre compte');
+  String get stepAccountSub => _t(
+        'This lets us save your plan and progress.',
+        'Cela nous permet d\'enregistrer votre plan et vos progrès.',
+      );
   String get stepLanguage => _t('Choose your language', 'Choisissez votre langue');
   String get stepLanguageSub => _t(
         'You can change this later in settings.',

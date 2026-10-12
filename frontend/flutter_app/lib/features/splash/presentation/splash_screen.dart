@@ -1,27 +1,41 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/config/app_config.dart';
+import '../../../core/network/api_client.dart';
 import '../../../core/router/routes.dart';
+import '../../auth/data/auth_repository.dart';
 
-class SplashScreen extends StatefulWidget {
+class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
 
   @override
-  State<SplashScreen> createState() => _SplashScreenState();
+  ConsumerState<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> {
+class _SplashScreenState extends ConsumerState<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      Future.delayed(const Duration(milliseconds: 1600), () {
-        if (!mounted) return;
-        context.go(AppRoutes.onboarding);
-      });
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _route());
+  }
+
+  Future<void> _route() async {
+    final minimumDelay = Future.delayed(const Duration(milliseconds: 1400));
+
+    final repo = AuthRepository(ref.read(dioProvider));
+    final user = await repo.currentUser();
+
+    await minimumDelay;
+    if (!mounted) return;
+
+    if (user != null) {
+      context.go(AppRoutes.home);
+    } else {
+      context.go(AppRoutes.onboarding);
+    }
   }
 
   @override
@@ -70,10 +84,9 @@ class _SplashScreenState extends State<SplashScreen> {
                   .fadeIn(duration: 500.ms)
                   .scale(begin: const Offset(0.85, 0.85), curve: Curves.easeOutBack),
               const SizedBox(height: 24),
-              Text(
-                AppConfig.appName,
-                style: theme.textTheme.displaySmall,
-              ).animate().fadeIn(delay: 200.ms, duration: 500.ms),
+              Text(AppConfig.appName, style: theme.textTheme.displaySmall)
+                  .animate()
+                  .fadeIn(delay: 200.ms, duration: 500.ms),
               const SizedBox(height: 8),
               Text(
                 AppConfig.appTagline,
