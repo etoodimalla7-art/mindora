@@ -1,27 +1,138 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
 import '../../../core/design/tokens/app_spacing.dart';
 import '../../../core/design/widgets/widgets.dart';
 import '../../../core/locale/locale_provider.dart';
+import '../../../core/network/api_client.dart';
 import '../../../core/router/routes.dart';
 import '../../../l10n/app_strings.dart';
-import '../state/onboarding_state.dart';
-import '../state/onboarding_submitter.dart';
-import 'steps/step_catalogue.dart';
-import 'steps/step_country.dart';
-import 'steps/step_education_system.dart';
-import 'steps/step_exam_date.dart';
-import 'steps/step_goal.dart';
-import 'steps/step_language.dart';
-import 'steps/step_level.dart';
-import 'steps/step_notifications.dart';
-import 'steps/step_personalize.dart';
-import 'steps/step_program.dart';
-import 'steps/step_study_times.dart';
-import 'steps/step_subjects.dart';
-import 'steps/step_welcome_done.dart';
+
+// =============================================================
+// Draft state
+// =============================================================
+
+class OnboardingDraft {
+  const OnboardingDraft({
+    this.languageCode = 'en',
+    this.countryCode = 'CM',
+    this.educationSystem,
+    this.level,
+    this.program,
+    this.subjects = const [],
+    this.goal,
+    this.targetExamDate,
+    this.studyWindows = const [],
+    this.explanationStyle,
+    this.allowNotifications = true,
+  });
+
+  final String languageCode;
+  final String countryCode;
+  final String? educationSystem;
+  final String? level;
+  final String? program;
+  final List<String> subjects;
+  final String? goal;
+  final DateTime? targetExamDate;
+  final List<String> studyWindows;
+  final String? explanationStyle;
+  final bool allowNotifications;
+
+  OnboardingDraft copyWith({
+    String? languageCode,
+    String? countryCode,
+    String? educationSystem,
+    String? level,
+    String? program,
+    List<String>? subjects,
+    String? goal,
+    DateTime? targetExamDate,
+    List<String>? studyWindows,
+    String? explanationStyle,
+    bool? allowNotifications,
+  }) =>
+      OnboardingDraft(
+        languageCode: languageCode ?? this.languageCode,
+        countryCode: countryCode ?? this.countryCode,
+        educationSystem: educationSystem ?? this.educationSystem,
+        level: level ?? this.level,
+        program: program ?? this.program,
+        subjects: subjects ?? this.subjects,
+        goal: goal ?? this.goal,
+        targetExamDate: targetExamDate ?? this.targetExamDate,
+        studyWindows: studyWindows ?? this.studyWindows,
+        explanationStyle: explanationStyle ?? this.explanationStyle,
+        allowNotifications: allowNotifications ?? this.allowNotifications,
+      );
+}
+
+class OnboardingController extends StateNotifier<OnboardingDraft> {
+  OnboardingController() : super(const OnboardingDraft());
+  void update(OnboardingDraft draft) => state = draft;
+}
+
+final onboardingProvider =
+    StateNotifierProvider<OnboardingController, OnboardingDraft>(
+  (_) => OnboardingController(),
+);
+
+// =============================================================
+// Step catalogue
+// =============================================================
+
+enum _Step {
+  language,
+  country,
+  educationSystem,
+  level,
+  program,
+  subjects,
+  goal,
+  examDate,
+  studyTimes,
+  notifications,
+  personalize,
+  done,
+}
+
+extension on _Step {
+  String title(AppStrings s) => switch (this) {
+        _Step.language => s.stepLanguage,
+        _Step.country => s.stepCountry,
+        _Step.educationSystem => s.stepEducationSystem,
+        _Step.level => s.stepLevel,
+        _Step.program => s.stepProgram,
+        _Step.subjects => s.stepSubjects,
+        _Step.goal => s.stepGoal,
+        _Step.examDate => s.stepExamDate,
+        _Step.studyTimes => s.stepStudyTimes,
+        _Step.notifications => s.stepNotifications,
+        _Step.personalize => s.stepPersonalize,
+        _Step.done => s.stepDone,
+      };
+
+  String subtitle(AppStrings s) => switch (this) {
+        _Step.language => s.stepLanguageSub,
+        _Step.country => s.stepCountrySub,
+        _Step.educationSystem => s.stepEducationSystemSub,
+        _Step.level => s.stepLevelSub,
+        _Step.program => s.stepProgramSub,
+        _Step.subjects => s.stepSubjectsSub,
+        _Step.goal => s.stepGoalSub,
+        _Step.examDate => s.stepExamDateSub,
+        _Step.studyTimes => s.stepStudyTimesSub,
+        _Step.notifications => s.stepNotificationsSub,
+        _Step.personalize => s.stepPersonalizeSub,
+        _Step.done => s.stepDoneSub,
+      };
+}
+
+// =============================================================
+// Screen
+// =============================================================
 
 class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({super.key});
@@ -31,21 +142,7 @@ class OnboardingScreen extends ConsumerStatefulWidget {
 }
 
 class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
-  final _steps = const [
-    OnboardingStep.language,
-    OnboardingStep.country,
-    OnboardingStep.educationSystem,
-    OnboardingStep.level,
-    OnboardingStep.program,
-    OnboardingStep.subjects,
-    OnboardingStep.goal,
-    OnboardingStep.examDate,
-    OnboardingStep.studyTimes,
-    OnboardingStep.notifications,
-    OnboardingStep.personalize,
-    OnboardingStep.done,
-  ];
-
+  static const _steps = _Step.values;
   int _index = 0;
   bool _submitting = false;
 
@@ -54,36 +151,51 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       setState(() => _index++);
       return;
     }
-    // Finish
     setState(() => _submitting = true);
     try {
       final draft = ref.read(onboardingProvider);
-      await ref.read(onboardingSubmitterProvider).submit(draft);
+      await _submit(draft);
       if (!mounted) return;
       context.go(AppRoutes.home);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('We could not save your preferences. Please try again.'),
+        ),
+      );
     } finally {
       if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  Future<void> _submit(OnboardingDraft d) async {
+    // Only hit the API if the user is authenticated. In Phase 3.x the wizard
+    // will create the account first; for now we try and swallow the 401.
+    final dio = ref.read(dioProvider);
+    try {
+      await dio.put('/users/me/education', data: {
+        'education_system': d.educationSystem,
+        'level': d.level,
+        'program': d.program,
+        'subjects': d.subjects,
+        'goals': d.goal != null ? [d.goal] : <String>[],
+        'study_preferences': {
+          'studyWindows': d.studyWindows,
+          'explanationStyle': d.explanationStyle,
+          'notifications': d.allowNotifications,
+        },
+        'target_exam_date':
+            d.targetExamDate?.toIso8601String().substring(0, 10),
+      });
+    } catch (_) {
+      // User not signed in yet; ignore. Phase 3 wires the account creation.
     }
   }
 
   void _back() {
     if (_index > 0) setState(() => _index--);
   }
-
-  Widget _buildStep(OnboardingStep step) => switch (step) {
-        OnboardingStep.language => const StepLanguage(),
-        OnboardingStep.country => const StepCountry(),
-        OnboardingStep.educationSystem => const StepEducationSystem(),
-        OnboardingStep.level => const StepLevel(),
-        OnboardingStep.program => const StepProgram(),
-        OnboardingStep.subjects => const StepSubjects(),
-        OnboardingStep.goal => const StepGoal(),
-        OnboardingStep.examDate => const StepExamDate(),
-        OnboardingStep.studyTimes => const StepStudyTimes(),
-        OnboardingStep.notifications => const StepNotifications(),
-        OnboardingStep.personalize => const StepPersonalize(),
-        OnboardingStep.done => const StepWelcomeDone(),
-      };
 
   @override
   Widget build(BuildContext context) {
@@ -98,7 +210,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Progress bar + skip
               Row(
                 children: [
                   if (_index > 0)
@@ -118,8 +229,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                         builder: (_, v, __) => LinearProgressIndicator(
                           value: v,
                           minHeight: 6,
-                          backgroundColor:
-                              Theme.of(context).colorScheme.outline.withValues(alpha: 0.25),
+                          backgroundColor: Theme.of(context)
+                              .colorScheme
+                              .outline
+                              .withValues(alpha: 0.25),
                         ),
                       ),
                     ),
@@ -132,8 +245,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                 ],
               ),
               const SizedBox(height: AppSpacing.xxxl),
-
-              Text(step.title(s), style: Theme.of(context).textTheme.headlineSmall),
+              Text(step.title(s),
+                  style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: AppSpacing.xs),
               Text(
                 step.subtitle(s),
@@ -145,9 +258,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     ),
               ),
               const SizedBox(height: AppSpacing.xl),
-
               Expanded(child: _buildStep(step)),
-
               const SizedBox(height: AppSpacing.lg),
               AppButton(
                 label: _index == _steps.length - 1 ? s.finish : s.continueLabel,
@@ -157,6 +268,474 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildStep(_Step step) => switch (step) {
+        _Step.language => _StepLanguage(),
+        _Step.country => _StepCountry(),
+        _Step.educationSystem => _StepEducationSystem(),
+        _Step.level => _StepLevel(),
+        _Step.program => _StepProgram(),
+        _Step.subjects => _StepSubjects(),
+        _Step.goal => _StepGoal(),
+        _Step.examDate => _StepExamDate(),
+        _Step.studyTimes => _StepStudyTimes(),
+        _Step.notifications => _StepNotifications(),
+        _Step.personalize => _StepPersonalize(),
+        _Step.done => _StepDone(),
+      };
+}
+
+// =============================================================
+// Reusable building blocks
+// =============================================================
+
+class _Tile extends StatelessWidget {
+  const _Tile({
+    required this.title,
+    required this.selected,
+    required this.onTap,
+    this.subtitle,
+  });
+
+  final String title;
+  final String? subtitle;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: selected
+                ? theme.colorScheme.primary.withValues(alpha: 0.08)
+                : theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: selected
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.outline.withValues(alpha: 0.6),
+              width: selected ? 1.6 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: theme.textTheme.titleMedium),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 2),
+                      Text(subtitle!, style: theme.textTheme.bodySmall),
+                    ],
+                  ],
+                ),
+              ),
+              Icon(
+                selected ? Icons.radio_button_checked : Icons.radio_button_off,
+                color: selected
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.outline,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ChoiceList extends ConsumerWidget {
+  const _ChoiceList({
+    required this.options,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final List<(String value, String label, String? sub)> options;
+  final String? selected;
+  final void Function(String value) onSelected;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ListView.separated(
+      itemCount: options.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      itemBuilder: (_, i) {
+        final (value, label, sub) = options[i];
+        return _Tile(
+          title: label,
+          subtitle: sub,
+          selected: selected == value,
+          onTap: () => onSelected(value),
+        );
+      },
+    );
+  }
+}
+
+class _StepScaffold extends StatelessWidget {
+  const _StepScaffold({required this.children});
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) =>
+      ListView(padding: EdgeInsets.zero, children: children);
+}
+
+// =============================================================
+// Individual steps
+// =============================================================
+
+class _StepLanguage extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final draft = ref.watch(onboardingProvider);
+    final ctrl = ref.read(onboardingProvider.notifier);
+    final current = ref.watch(localeProvider);
+
+    return _ChoiceList(
+      options: const [
+        ('en', 'English', 'Continue in English'),
+        ('fr', 'Français', 'Continuer en français'),
+      ],
+      selected: current.languageCode,
+      onSelected: (code) {
+        ref.read(localeProvider.notifier).setLocale(Locale(code));
+        ctrl.update(draft.copyWith(languageCode: code));
+      },
+    );
+  }
+}
+
+class _StepCountry extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final draft = ref.watch(onboardingProvider);
+    final ctrl = ref.read(onboardingProvider.notifier);
+    return _ChoiceList(
+      options: const [
+        ('CM', 'Cameroon', 'Cameroun'),
+        ('NG', 'Nigeria', null),
+        ('GH', 'Ghana', null),
+      ],
+      selected: draft.countryCode,
+      onSelected: (code) => ctrl.update(draft.copyWith(countryCode: code)),
+    );
+  }
+}
+
+class _StepEducationSystem extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final draft = ref.watch(onboardingProvider);
+    final ctrl = ref.read(onboardingProvider.notifier);
+    return _ChoiceList(
+      options: const [
+        ('GCE', 'GCE', 'Anglophone system'),
+        ('FRANCOPHONE', 'Francophone', 'Système francophone'),
+      ],
+      selected: draft.educationSystem,
+      onSelected: (v) => ctrl.update(draft.copyWith(educationSystem: v)),
+    );
+  }
+}
+
+class _StepLevel extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final draft = ref.watch(onboardingProvider);
+    final ctrl = ref.read(onboardingProvider.notifier);
+    final sys = draft.educationSystem;
+
+    final options = <(String, String, String?)>[
+      if (sys == 'GCE') ...[
+        ('ORDINARY_LEVEL', 'GCE Ordinary Level', null),
+        ('ADVANCED_LEVEL', 'GCE Advanced Level', null),
+        ('HND', 'HND', null),
+      ] else if (sys == 'FRANCOPHONE') ...[
+        ('BEPC', 'BEPC', null),
+        ('PROBATOIRE', 'Probatoire', null),
+        ('BACCALAUREAT', 'Baccalauréat', null),
+        ('BTS', 'BTS', null),
+      ] else ...[
+        ('SECONDARY', 'Secondary', null),
+        ('UNIVERSITY', 'University', null),
+      ],
+      ('LICENCE', 'Licence', null),
+      ('MASTER', 'Master', null),
+    ];
+
+    return _ChoiceList(
+      options: options,
+      selected: draft.level,
+      onSelected: (v) => ctrl.update(draft.copyWith(level: v)),
+    );
+  }
+}
+
+class _StepProgram extends ConsumerStatefulWidget {
+  @override
+  ConsumerState<_StepProgram> createState() => _StepProgramState();
+}
+
+class _StepProgramState extends ConsumerState<_StepProgram> {
+  late final TextEditingController _c;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = TextEditingController(text: ref.read(onboardingProvider).program);
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _StepScaffold(children: [
+      TextField(
+        controller: _c,
+        textCapitalization: TextCapitalization.words,
+        decoration: const InputDecoration(
+          hintText: 'Example: Science, Arts, Computer Engineering',
+          prefixIcon: Icon(Icons.school_outlined),
+        ),
+        onChanged: (v) => ref
+            .read(onboardingProvider.notifier)
+            .update(ref.read(onboardingProvider).copyWith(program: v)),
+      ),
+    ]);
+  }
+}
+
+class _StepSubjects extends ConsumerWidget {
+  static const _all = [
+    'Mathematics',
+    'Physics',
+    'Chemistry',
+    'Biology',
+    'Computer Science',
+    'Economics',
+    'Accounting',
+    'English',
+    'French',
+    'History',
+    'Geography',
+    'Philosophy',
+  ];
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final draft = ref.watch(onboardingProvider);
+    final ctrl = ref.read(onboardingProvider.notifier);
+    final selected = draft.subjects.toSet();
+
+    return ListView.separated(
+      itemCount: _all.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (_, i) {
+        final subject = _all[i];
+        final on = selected.contains(subject);
+        return _Tile(
+          title: subject,
+          selected: on,
+          onTap: () {
+            final next = {...selected};
+            on ? next.remove(subject) : next.add(subject);
+            ctrl.update(draft.copyWith(subjects: next.toList()));
+          },
+        );
+      },
+    );
+  }
+}
+
+class _StepGoal extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final draft = ref.watch(onboardingProvider);
+    final ctrl = ref.read(onboardingProvider.notifier);
+    return _ChoiceList(
+      options: const [
+        ('pass_exam', 'Pass my examination', null),
+        ('improve_grades', 'Improve my grades', null),
+        ('learn_deeply', 'Learn deeply', null),
+        ('short_revision', 'Quick revision', null),
+      ],
+      selected: draft.goal,
+      onSelected: (v) => ctrl.update(draft.copyWith(goal: v)),
+    );
+  }
+}
+
+class _StepExamDate extends ConsumerStatefulWidget {
+  @override
+  ConsumerState<_StepExamDate> createState() => _StepExamDateState();
+}
+
+class _StepExamDateState extends ConsumerState<_StepExamDate> {
+  @override
+  Widget build(BuildContext context) {
+    final draft = ref.watch(onboardingProvider);
+    final ctrl = ref.read(onboardingProvider.notifier);
+    final date = draft.targetExamDate;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AppSurface(
+          padding: const EdgeInsets.all(20),
+          child: Row(
+            children: [
+              const Icon(Icons.event_outlined),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  date == null
+                      ? 'No date selected yet'
+                      : DateFormat.yMMMMd().format(date),
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        AppButton(
+          label: date == null ? 'Pick a date' : 'Change date',
+          icon: Icons.calendar_today_outlined,
+          onPressed: () async {
+            final now = DateTime.now();
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: date ?? now.add(const Duration(days: 90)),
+              firstDate: now,
+              lastDate: now.add(const Duration(days: 365 * 5)),
+            );
+            if (picked != null) ctrl.update(draft.copyWith(targetExamDate: picked));
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _StepStudyTimes extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final draft = ref.watch(onboardingProvider);
+    final ctrl = ref.read(onboardingProvider.notifier);
+    final options = const [
+      ('morning', 'Morning (6am–11am)', null),
+      ('afternoon', 'Afternoon (11am–5pm)', null),
+      ('evening', 'Evening (5pm–9pm)', null),
+      ('night', 'Night (9pm–12am)', null),
+    ];
+    final selected = draft.studyWindows.toSet();
+
+    return ListView.separated(
+      itemCount: options.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      itemBuilder: (_, i) {
+        final (v, label, _) = options[i];
+        final on = selected.contains(v);
+        return _Tile(
+          title: label,
+          selected: on,
+          onTap: () {
+            final next = {...selected};
+            on ? next.remove(v) : next.add(v);
+            ctrl.update(draft.copyWith(studyWindows: next.toList()));
+          },
+        );
+      },
+    );
+  }
+}
+
+class _StepNotifications extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final draft = ref.watch(onboardingProvider);
+    final ctrl = ref.read(onboardingProvider.notifier);
+    return Column(
+      children: [
+        SwitchListTile(
+          value: draft.allowNotifications,
+          onChanged: (v) => ctrl.update(draft.copyWith(allowNotifications: v)),
+          title: const Text('Enable study reminders'),
+          contentPadding: EdgeInsets.zero,
+        ),
+      ],
+    );
+  }
+}
+
+class _StepPersonalize extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final draft = ref.watch(onboardingProvider);
+    final ctrl = ref.read(onboardingProvider.notifier);
+    return _ChoiceList(
+      options: const [
+        ('concise', 'Concise', 'Short, direct answers'),
+        ('standard', 'Standard', 'Balanced explanations'),
+        ('detailed', 'Detailed', 'Step-by-step depth'),
+        ('socratic', 'Socratic', 'Guided questions'),
+      ],
+      selected: draft.explanationStyle,
+      onSelected: (v) => ctrl.update(draft.copyWith(explanationStyle: v)),
+    );
+  }
+}
+
+class _StepDone extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(28),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withValues(alpha: 0.08),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(Icons.check_circle_outline,
+                size: 48, color: theme.colorScheme.primary),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'Your plan is ready.',
+            style: theme.textTheme.titleLarge,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Tap Finish to open your dashboard.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.65),
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
       ),
     );
   }

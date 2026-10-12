@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:lucide_icons/lucide_icons.dart';
 import 'package:responsive_framework/responsive_framework.dart';
 
 import '../../../core/router/routes.dart';
@@ -11,11 +10,16 @@ class AppShell extends StatelessWidget {
   final Widget child;
 
   static const _destinations = <_Dest>[
-    _Dest(route: AppRoutes.home, label: 'Home', icon: LucideIcons.home, selectedIcon: LucideIcons.home),
-    _Dest(route: AppRoutes.ai, label: 'AI', icon: LucideIcons.sparkles, selectedIcon: LucideIcons.sparkles),
-    _Dest(route: AppRoutes.planner, label: 'Planner', icon: LucideIcons.calendarDays, selectedIcon: LucideIcons.calendarDays),
-    _Dest(route: AppRoutes.learn, label: 'Learn', icon: LucideIcons.bookOpen, selectedIcon: LucideIcons.bookOpen),
-    _Dest(route: AppRoutes.profile, label: 'Profile', icon: LucideIcons.user, selectedIcon: LucideIcons.user),
+    _Dest(route: AppRoutes.home, label: 'Home',
+        icon: Icons.home_outlined, selectedIcon: Icons.home),
+    _Dest(route: AppRoutes.ai, label: 'AI',
+        icon: Icons.auto_awesome_outlined, selectedIcon: Icons.auto_awesome),
+    _Dest(route: AppRoutes.planner, label: 'Planner',
+        icon: Icons.calendar_today_outlined, selectedIcon: Icons.calendar_today),
+    _Dest(route: AppRoutes.learn, label: 'Learn',
+        icon: Icons.menu_book_outlined, selectedIcon: Icons.menu_book),
+    _Dest(route: AppRoutes.profile, label: 'Profile',
+        icon: Icons.person_outline, selectedIcon: Icons.person),
   ];
 
   int _currentIndex(BuildContext context) {
