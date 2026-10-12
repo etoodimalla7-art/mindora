@@ -1,0 +1,90 @@
+[tool.poetry]
+name = "mindora-api"
+version = "0.1.0"
+description = "MINDORA — FastAPI backend service"
+authors = ["MINDORA Team"]
+readme = "README.md"
+packages = [{ include = "app" }]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+
+# Web framework
+fastapi = "^0.115.0"
+uvicorn = { version = "^0.32.0", extras = ["standard"] }
+python-multipart = "^0.0.12"
+sse-starlette = "^2.1.3"
+
+# Config & validation
+pydantic = "^2.9.2"
+pydantic-settings = "^2.5.2"
+email-validator = "^2.2.0"
+
+# Database
+sqlalchemy = { version = "^2.0.35", extras = ["asyncio"] }
+asyncpg = "^0.29.0"
+psycopg = { version = "^3.2.3", extras = ["binary"] }
+alembic = "^1.13.3"
+pgvector = "^0.3.5"
+
+# Cache / queue
+redis = "^5.1.0"
+
+# Storage
+boto3 = "^1.35.36"
+
+# Security
+passlib = { version = "^1.7.4", extras = ["bcrypt"] }
+bcrypt = "^4.2.0"
+python-jose = { version = "^3.3.0", extras = ["cryptography"] }
+pyjwt = "^2.9.0"
+
+# HTTP client
+httpx = "^0.27.2"
+
+# Logging / observability
+structlog = "^24.4.0"
+
+# Utils
+python-slugify = "^8.0.4"
+tenacity = "^9.0.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.3"
+pytest-asyncio = "^0.24.0"
+pytest-cov = "^6.0.0"
+ruff = "^0.7.1"
+mypy = "^1.13.0"
+types-passlib = "^1.7.7.20240813"
+types-python-jose = "^3.3.4.20240106"
+faker = "^30.3.0"
+httpx = "^0.27.2"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "C4", "W"]
+ignore = ["B008", "E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
+warn_unused_ignores = true
+ignore_missing_imports = true
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q --disable-warnings"
