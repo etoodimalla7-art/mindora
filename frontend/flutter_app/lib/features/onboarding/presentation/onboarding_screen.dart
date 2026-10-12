@@ -9,6 +9,7 @@ import '../../../core/locale/locale_provider.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/router/routes.dart';
 import '../../../l10n/app_strings.dart';
+import '../../auth/presentation/auth_controller.dart';
 
 // =============================================================
 // Draft state
@@ -84,6 +85,7 @@ final onboardingProvider =
 // =============================================================
 
 enum _Step {
+  account,
   language,
   country,
   educationSystem,
@@ -100,6 +102,7 @@ enum _Step {
 
 extension on _Step {
   String title(AppStrings s) => switch (this) {
+        _Step.account => s.stepAccount,
         _Step.language => s.stepLanguage,
         _Step.country => s.stepCountry,
         _Step.educationSystem => s.stepEducationSystem,
@@ -115,6 +118,7 @@ extension on _Step {
       };
 
   String subtitle(AppStrings s) => switch (this) {
+        _Step.account => s.stepAccountSub,
         _Step.language => s.stepLanguageSub,
         _Step.country => s.stepCountrySub,
         _Step.educationSystem => s.stepEducationSystemSub,
@@ -146,15 +150,60 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   int _index = 0;
   bool _submitting = false;
 
+  // Controllers for the account step. Kept at the screen level so the
+  // Finish action can access the credentials the user typed.
+  final _email = TextEditingController();
+  final _password = TextEditingController();
+  final _fullName = TextEditingController();
+
+  @override
+  void dispose() {
+    _email.dispose();
+    _password.dispose();
+    _fullName.dispose();
+    super.dispose();
+  }
+
   void _next() async {
     if (_index < _steps.length - 1) {
       setState(() => _index++);
       return;
     }
+
+    // Validate account fields on the final step.
+    if (_email.text.trim().isEmpty || _password.text.length < 8) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter an email and a password with at least 8 characters.'),
+        ),
+      );
+      return;
+    }
+
     setState(() => _submitting = true);
     try {
       final draft = ref.read(onboardingProvider);
+
+      // 1. Create the account.
+      final auth = ref.read(authControllerProvider.notifier);
+      final ok = await auth.register(
+        email: _email.text.trim(),
+        password: _password.text,
+        fullName: _fullName.text.trim().isEmpty ? null : _fullName.text.trim(),
+        preferredLanguage: draft.languageCode,
+        countryCode: draft.countryCode,
+      );
+
+      if (!ok) {
+        final err = ref.read(authControllerProvider).error ?? 'Registration failed.';
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+        return;
+      }
+
+      // 2. Save the education profile now that we have a token.
       await _submit(draft);
+
       if (!mounted) return;
       context.go(AppRoutes.home);
     } catch (_) {
@@ -273,6 +322,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 
   Widget _buildStep(_Step step) => switch (step) {
+        _Step.account => _StepAccount(),
         _Step.language => _StepLanguage(),
         _Step.country => _StepCountry(),
         _Step.educationSystem => _StepEducationSystem(),
@@ -737,6 +787,69 @@ class _StepDone extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// =============================================================
+// Account step — creates the user or routes to login
+class _StepAccount extends ConsumerStatefulWidget {
+  @override
+  ConsumerState<_StepAccount> createState() => _StepAccountState();
+}
+
+class _StepAccountState extends ConsumerState<_StepAccount> {
+  bool _obscure = true;
+
+  @override
+  Widget build(BuildContext context) {
+    final parent = context
+        .findAncestorStateOfType<_OnboardingScreenState>()!;
+    return ListView(
+      padding: EdgeInsets.zero,
+      children: [
+        AppTextField(
+          controller: parent._fullName,
+          label: 'Full name',
+          hint: 'Jane Doe',
+          prefixIcon: Icons.person_outline,
+          textCapitalization: TextCapitalization.words,
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        AppTextField(
+          controller: parent._email,
+          label: 'Email',
+          hint: 'you@example.com',
+          keyboardType: TextInputType.emailAddress,
+          textInputAction: TextInputAction.next,
+          prefixIcon: Icons.alternate_email,
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        AppTextField(
+          controller: parent._password,
+          label: 'Password',
+          hint: 'At least 8 characters',
+          obscureText: _obscure,
+          prefixIcon: Icons.lock_outline,
+          suffixIcon: IconButton(
+            icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+            onPressed: () => setState(() => _obscure = !_obscure),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          'Password must be at least 8 characters.',
+          style: Theme.of(context).textTheme.labelSmall,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton(
+            onPressed: () => context.go(AppRoutes.login),
+            child: const Text('I already have an account'),
+          ),
+        ),
+      ],
     );
   }
 }
