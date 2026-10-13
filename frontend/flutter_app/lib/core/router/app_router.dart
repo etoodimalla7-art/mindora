@@ -1,8 +1,17 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/admin/presentation/screens/admin_document_detail_screen.dart';
+import '../../features/admin/presentation/screens/admin_moderation_screen.dart';
 import '../../features/auth/presentation/login_screen.dart';
+import '../../features/documents/presentation/screens/documents_home_screen.dart';
+import '../../features/documents/presentation/screens/my_contributions_screen.dart';
+import '../../features/documents/presentation/screens/upload_description_screen.dart';
+import '../../features/documents/presentation/screens/upload_file_screen.dart';
+import '../../features/documents/presentation/screens/upload_metadata_screen.dart';
+import '../../features/documents/presentation/screens/upload_progress_screen.dart';
 import '../../features/home/presentation/home_screen.dart';
 import '../../features/onboarding/presentation/onboarding_screen.dart';
 import '../../features/planner/presentation/screens/create_exam_plan_screen.dart';
@@ -40,6 +49,48 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         name: 'styleguide',
         builder: (_, __) => const StyleguideScreen(),
       ),
+
+      // Documents
+      GoRoute(
+        path: '/documents/upload/file',
+        builder: (_, __) => const UploadFileScreen(),
+      ),
+      GoRoute(
+        path: '/documents/upload/metadata',
+        builder: (_, state) {
+          final file = state.extra as PlatformFile;
+          return UploadMetadataScreen(file: file);
+        },
+      ),
+      GoRoute(
+        path: '/documents/upload/description',
+        builder: (_, state) {
+          final payload = state.extra as Map<String, dynamic>;
+          return UploadDescriptionScreen(payload: payload);
+        },
+      ),
+      GoRoute(
+        path: '/documents/progress/:id',
+        builder: (_, state) =>
+            UploadProgressScreen(documentId: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/documents/mine',
+        builder: (_, __) => const MyContributionsScreen(),
+      ),
+
+      // Admin
+      GoRoute(
+        path: '/admin/moderation',
+        builder: (_, __) => const AdminModerationScreen(),
+      ),
+      GoRoute(
+        path: '/admin/documents/:id',
+        builder: (_, state) => AdminDocumentDetailScreen(
+          documentId: state.pathParameters['id']!,
+        ),
+      ),
+
       ShellRoute(
         builder: (context, state, child) => AppShell(child: child),
         routes: [
@@ -82,7 +133,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: AppRoutes.learn,
             name: 'learn',
-            builder: (_, __) => const _Placeholder(title: 'Learn'),
+            builder: (_, __) => const DocumentsHomeScreen(),
           ),
           GoRoute(
             path: AppRoutes.profile,

@@ -6,6 +6,7 @@ import '../../../core/design/tokens/app_spacing.dart';
 import '../../../core/design/widgets/widgets.dart';
 import '../../../core/router/routes.dart';
 import '../../auth/presentation/auth_controller.dart';
+import '../../documents/data/documents_providers.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -14,6 +15,7 @@ class ProfileScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final session = ref.watch(authControllerProvider).session;
+    final creditsAsync = ref.watch(creditBalanceProvider);
 
     if (session == null) {
       return Scaffold(
@@ -27,6 +29,7 @@ class ProfileScreen extends ConsumerWidget {
     }
 
     final user = session.user;
+    final isAdmin = user.isAdmin;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Profile')),
@@ -49,10 +52,51 @@ class ProfileScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(user.email, style: theme.textTheme.bodySmall),
+                  if (isAdmin) ...[
+                    const SizedBox(height: AppSpacing.sm),
+                    const AppBadge(label: 'ADMIN', tone: AppBadgeTone.danger),
+                  ],
                 ],
               ),
             ),
             const SizedBox(height: AppSpacing.xxxl),
+
+            // Credits
+            creditsAsync.when(
+              loading: () => const AppSkeleton(height: 80),
+              error: (_, __) => const SizedBox.shrink(),
+              data: (credits) => AppSurface(
+                padding: const EdgeInsets.all(AppSpacing.lg),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      alignment: Alignment.center,
+                      child: Icon(Icons.card_giftcard,
+                          color: theme.colorScheme.primary),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('${credits.balance} credits',
+                              style: theme.textTheme.titleMedium),
+                          Text('Available for downloads',
+                              style: theme.textTheme.bodySmall),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xl),
 
             // Account section
             Text('Account', style: theme.textTheme.titleMedium),
@@ -77,6 +121,27 @@ class ProfileScreen extends ConsumerWidget {
             ),
             const SizedBox(height: AppSpacing.xl),
 
+            // Admin section
+            if (isAdmin) ...[
+              Text('Administration', style: theme.textTheme.titleMedium),
+              const SizedBox(height: AppSpacing.md),
+              AppSurface(
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+                child: Column(
+                  children: [
+                    AppListTile(
+                      title: 'Moderation queue',
+                      subtitle: 'Review and approve contributed documents',
+                      leadingIcon: Icons.shield_outlined,
+                      showChevron: true,
+                      onTap: () => context.push('/admin/moderation'),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppSpacing.xl),
+            ],
+
             // App section
             Text('App', style: theme.textTheme.titleMedium),
             const SizedBox(height: AppSpacing.md),
@@ -84,6 +149,13 @@ class ProfileScreen extends ConsumerWidget {
               padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
               child: Column(
                 children: [
+                  AppListTile(
+                    title: 'My contributions',
+                    leadingIcon: Icons.folder_copy_outlined,
+                    showChevron: true,
+                    onTap: () => context.push('/documents/mine'),
+                  ),
+                  const AppDivider(),
                   AppListTile(
                     title: 'Notifications',
                     leadingIcon: Icons.notifications_none,
@@ -94,13 +166,6 @@ class ProfileScreen extends ConsumerWidget {
                   AppListTile(
                     title: 'Downloads',
                     leadingIcon: Icons.download_outlined,
-                    showChevron: true,
-                    onTap: () {},
-                  ),
-                  const AppDivider(),
-                  AppListTile(
-                    title: 'Credits',
-                    leadingIcon: Icons.card_giftcard,
                     showChevron: true,
                     onTap: () {},
                   ),
@@ -125,7 +190,8 @@ class ProfileScreen extends ConsumerWidget {
                 final confirmed = await AppDialog.show(
                   context,
                   title: 'Sign out?',
-                  message: 'You will need to sign in again to access your plans.',
+                  message:
+                      'You will need to sign in again to access your plans.',
                   confirmLabel: 'Sign out',
                   destructive: true,
                 );
