@@ -1,6 +1,7 @@
 """Google Gemini provider using the official google-genai SDK.
 
-Supports both new-style (AQ.*) and legacy (AIza*) API keys.
+Handles both legacy (AIza*) and new-style (AQ.*) API keys.
+Supports chat (generateContent) and embeddings (embedContent).
 """
 from __future__ import annotations
 
@@ -21,14 +22,22 @@ from app.integrations.ai.provider import (
 
 logger = get_logger(__name__)
 
+# Force a fixed embedding dimension so the pgvector column stays small.
+# gemini-embedding-001 returns 3072 dims by default; we cap at 768.
+EMBEDDING_DIMENSIONS = 768
+
 
 def _to_gemini_role(role: str) -> str:
-    """Map our generic roles to Gemini's roles.
+    """Map generic roles to Gemini's user/model roles.
 
-    Gemini understands 'user' and 'model'. System prompts are handled
-    separately by the SDK (system_instruction parameter).
+    System prompts are handled separately through system_instruction.
     """
     return {"assistant": "model", "system": "user"}.get(role, role)
+
+
+# =====================================================================
+# Chat provider
+# =====================================================================
 
 
 class GeminiChatProvider:
@@ -71,7 +80,6 @@ class GeminiChatProvider:
         client = self._require_client()
         model_name = model or self.default_model
 
-        # Split system prompt from the conversation.
         system_chunks = [m.content for m in messages if m.role == "system"]
         system_instruction = "\n\n".join(system_chunks) if system_chunks else None
 
@@ -92,21 +100,44 @@ class GeminiChatProvider:
         if json_mode:
             config.response_mime_type = "application/json"
 
-        try:
-            # The SDK exposes sync and async clients. We use the async
-            # variant via .aio.
-            response = await client.aio.models.generate_content(
-                model=model_name,
-                contents=contents,
-                config=config,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.error("gemini_chat_failed error=%s", exc)
+        last_error: Exception | None = None
+        response: Any = None
+        for attempt in range(3):
+            try:
+                response = await client.aio.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                    config=config,
+                )
+                break
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                msg = str(exc)
+                transient = (
+                    "503" in msg
+                    or "429" in msg
+                    or "UNAVAILABLE" in msg
+                    or "RESOURCE_EXHAUSTED" in msg
+                )
+                if transient and attempt < 2:
+                    logger.warning(
+                        "gemini_chat_retry attempt=%d error=%s", attempt + 1, msg[:120]
+                    )
+                    await asyncio.sleep(2 ** attempt)
+                    continue
+                logger.error("gemini_chat_failed error=%s", msg[:200])
+                raise AppError(
+                    "The AI service is temporarily unavailable.",
+                    code="ai_unavailable",
+                    status_code=502,
+                ) from exc
+        else:
+            logger.error("gemini_chat_exhausted error=%s", str(last_error)[:200])
             raise AppError(
                 "The AI service is temporarily unavailable.",
                 code="ai_unavailable",
                 status_code=502,
-            ) from exc
+            ) from last_error
 
         text = self._extract_text(response)
         usage = self._extract_usage(response)
@@ -124,17 +155,20 @@ class GeminiChatProvider:
 
     @staticmethod
     def _extract_text(response: Any) -> str:
-        # google-genai exposes response.text in most cases.
         try:
             text = response.text
             if text:
                 return text
         except Exception:  # noqa: BLE001
             pass
-        # Fallback: walk candidates/parts manually.
         try:
             parts = response.candidates[0].content.parts
-            return "".join(getattr(p, "text", "") or "" for p in parts)
+            collected: list[str] = []
+            for p in parts:
+                t = getattr(p, "text", None)
+                if t:
+                    collected.append(t)
+            return "".join(collected)
         except Exception:  # noqa: BLE001
             return ""
 
@@ -149,6 +183,11 @@ class GeminiChatProvider:
             }
         except Exception:  # noqa: BLE001
             return {}
+
+
+# =====================================================================
+# Embedding provider
+# =====================================================================
 
 
 class GeminiEmbeddingProvider:
@@ -179,13 +218,19 @@ class GeminiEmbeddingProvider:
         client = self._require_client()
         model_name = model or self.default_model
 
+        # Force a fixed dimension so the pgvector column stays small.
+        config = genai_types.EmbedContentConfig(
+            output_dimensionality=EMBEDDING_DIMENSIONS,
+        )
+
         try:
             response = await client.aio.models.embed_content(
                 model=model_name,
                 contents=texts,
+                config=config,
             )
         except Exception as exc:  # noqa: BLE001
-            logger.error("gemini_embed_failed error=%s", exc)
+            logger.error("gemini_embed_failed error=%s", str(exc)[:200])
             raise AppError(
                 "The AI service is temporarily unavailable.",
                 code="ai_unavailable",
