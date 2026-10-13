@@ -7,30 +7,27 @@ from app.models.document import (
     DocumentDuplicate,
     DescriptionValidation,
 )
+from app.models.document_chunk import DocumentChunk
 from app.models.plan import StudyPlan, StudySession
 from app.models.progress import TopicProgress
 from app.models.session import Session
 from app.models.user import EducationProfile, Profile, User
 
 __all__ = [
-    # Identity
     "User",
     "Profile",
     "EducationProfile",
     "Session",
-    # Planner
     "StudyPlan",
     "StudySession",
     "TopicProgress",
-    # Documents
     "Document",
     "DocumentAnalysis",
     "DocumentDuplicate",
     "DescriptionValidation",
-    # Credits
+    "DocumentChunk",
     "CreditLedger",
     "Download",
-    # AI
     "Conversation",
     "Message",
 ]
