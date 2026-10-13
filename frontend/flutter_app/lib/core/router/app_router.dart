@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../features/admin/presentation/screens/admin_document_detail_screen.dart';
 import '../../features/admin/presentation/screens/admin_moderation_screen.dart';
+import '../../features/ai/presentation/screens/chat_screen.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/documents/presentation/screens/documents_home_screen.dart';
 import '../../features/documents/presentation/screens/my_contributions_screen.dart';
@@ -102,7 +103,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: AppRoutes.ai,
             name: 'ai',
-            builder: (_, __) => const _Placeholder(title: 'AI Assistant'),
+            builder: (_, __) => const ChatScreen(),
           ),
           GoRoute(
             path: AppRoutes.planner,
@@ -161,25 +162,3 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     ),
   );
 });
-
-class _Placeholder extends StatelessWidget {
-  const _Placeholder({required this.title});
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: Center(
-        child: Text(
-          '$title\ncoming online soon.',
-          textAlign: TextAlign.center,
-          style: theme.textTheme.bodyLarge?.copyWith(
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-          ),
-        ),
-      ),
-    );
-  }
-}
