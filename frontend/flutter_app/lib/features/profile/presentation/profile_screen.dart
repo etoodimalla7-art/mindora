@@ -98,7 +98,7 @@ class ProfileScreen extends ConsumerWidget {
             ),
             const SizedBox(height: AppSpacing.xl),
 
-            // Account section
+            // Account
             Text('Account', style: theme.textTheme.titleMedium),
             const SizedBox(height: AppSpacing.md),
             AppSurface(
@@ -121,7 +121,7 @@ class ProfileScreen extends ConsumerWidget {
             ),
             const SizedBox(height: AppSpacing.xl),
 
-            // Admin section
+            // Admin
             if (isAdmin) ...[
               Text('Administration', style: theme.textTheme.titleMedium),
               const SizedBox(height: AppSpacing.md),
@@ -142,7 +142,7 @@ class ProfileScreen extends ConsumerWidget {
               const SizedBox(height: AppSpacing.xl),
             ],
 
-            // App section
+            // App
             Text('App', style: theme.textTheme.titleMedium),
             const SizedBox(height: AppSpacing.md),
             AppSurface(
@@ -181,7 +181,6 @@ class ProfileScreen extends ConsumerWidget {
             ),
             const SizedBox(height: AppSpacing.xl),
 
-            // Logout
             AppButton(
               label: 'Sign out',
               icon: Icons.logout,
