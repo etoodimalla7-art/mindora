@@ -1,6 +1,7 @@
 """Authentication service: registration, login, refresh, logout."""
 from __future__ import annotations
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictError, UnauthorizedError
@@ -15,6 +16,7 @@ from app.models.user import User
 from app.repositories.session_repo import SessionRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.auth import AuthResponse, TokenPair
+from app.services.credit_service import CreditService
 
 
 class AuthService:
@@ -45,6 +47,16 @@ class AuthService:
             preferred_language=preferred_language,
             country_code=country_code,
         )
+
+               # Bootstrap: promote to admin if no admin exists yet.
+        admin_count_stmt = select(func.count(User.id)).where(User.is_admin.is_(True))
+        admin_count = (await self.session.execute(admin_count_stmt)).scalar() or 0
+        if admin_count == 0:
+            user.is_admin = True
+            
+        # Grant the signup bonus.
+        await CreditService(self.session).grant_signup_bonus(user.id)
+
         tokens = await self._issue_tokens(user, user_agent, ip_address)
         await self.session.commit()
         await self.session.refresh(user)
@@ -86,7 +98,6 @@ class AuthService:
         if not session_row:
             raise UnauthorizedError("Refresh token is expired or revoked.")
 
-        # Rotate: revoke old, issue new.
         await self.sessions.revoke(session_row)
 
         import uuid
