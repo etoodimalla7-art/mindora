@@ -17,17 +17,16 @@ from ai.tools.base import ToolContext
 class ChatService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
-        self.orchestrator = Orchestrator()
+        # Pass the session so tools like course_rag can query the DB.
+        self.orchestrator = Orchestrator(session)
 
     async def send(
         self,
         user_id: uuid.UUID,
         payload: ChatRequest,
     ) -> ChatResponse:
-        # 1. Load or create the conversation.
         conversation = await self._get_or_create_conversation(user_id, payload)
 
-        # 2. Persist the user message.
         user_msg = Message(
             conversation_id=conversation.id,
             role="user",
@@ -36,19 +35,17 @@ class ChatService:
         self.session.add(user_msg)
         await self.session.flush()
 
-        # 3. Load recent history (excluding the just-saved user message).
         history = await self._recent_history(conversation.id)
 
-        # 4. Run the orchestrator.
         ctx = ToolContext(
             user_id=str(user_id),
             message=payload.message,
             history=[ChatMessage(role=m.role, content=m.content) for m in history],
             subject=conversation.subject,
+            extras={"session": self.session},
         )
         result = await self.orchestrator.run(ctx)
 
-        # 5. Persist the assistant message.
         assistant_msg = Message(
             conversation_id=conversation.id,
             role="assistant",
@@ -60,9 +57,7 @@ class ChatService:
         )
         self.session.add(assistant_msg)
 
-        # 6. Update counters.
         conversation.message_count = (conversation.message_count or 0) + 2
-        # Auto-title the conversation from the first user message.
         if conversation.message_count <= 2:
             conversation.title = _auto_title(payload.message)
 
