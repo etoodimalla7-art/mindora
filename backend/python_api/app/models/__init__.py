@@ -1,4 +1,5 @@
 """ORM models. Importing this package registers all models with Base.metadata."""
+from app.models.conversation import Conversation, Message
 from app.models.credit import CreditLedger, Download
 from app.models.document import (
     Document,
@@ -29,4 +30,7 @@ __all__ = [
     # Credits
     "CreditLedger",
     "Download",
+    # AI
+    "Conversation",
+    "Message",
 ]
