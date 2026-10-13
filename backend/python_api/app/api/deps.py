@@ -9,7 +9,7 @@ from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import UnauthorizedError
+from app.core.errors import ForbiddenError, UnauthorizedError
 from app.core.security import decode_token
 from app.db.session import get_session as _get_session
 from app.repositories.user_repo import UserRepository
@@ -48,5 +48,15 @@ async def get_current_user(
     return user
 
 
+async def get_admin_user(
+    user: Annotated[object, Depends(get_current_user)],
+):
+    """Dependency that ensures the current user is an admin."""
+    if not getattr(user, "is_admin", False):
+        raise ForbiddenError("Administrator privileges required.")
+    return user
+
+
 CurrentUser = Annotated[object, Depends(get_current_user)]
 CurrentUserId = Annotated[uuid.UUID, Depends(get_current_user_id)]
+AdminUser = Annotated[object, Depends(get_admin_user)]
