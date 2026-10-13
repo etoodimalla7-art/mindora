@@ -5,6 +5,7 @@ interfaces. The rest of the application never imports provider SDKs directly.
 """
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
@@ -52,6 +53,17 @@ class ChatProvider(Protocol):
         json_mode: bool = False,
         extra: dict[str, Any] | None = None,
     ) -> ChatResponse: ...
+
+    def chat_stream(
+        self,
+        messages: list[ChatMessage],
+        *,
+        model: str | None = None,
+        temperature: float = 0.4,
+        max_tokens: int | None = None,
+    ) -> AsyncIterator[str]:
+        """Yield chunks of the assistant response as they are generated."""
+        ...
 
 
 class EmbeddingProvider(Protocol):
