@@ -1,4 +1,12 @@
-"""AI Orchestrator — routes each user message to the right tools."""
+"""AI Orchestrator — routes each user message to the right tools.
+
+Strategy:
+  1. Run a deterministic heuristic classifier on the message (fast, cheap).
+  2. Ask the LLM to confirm/refine the tool selection.
+  3. Merge the two decisions (union, with priority on the heuristic).
+  4. Execute the selected tools.
+  5. Compose the final answer with the calculator result as ground truth.
+"""
 from __future__ import annotations
 
 import json
@@ -33,24 +41,43 @@ class OrchestratorResult:
     reasoning: str | None = None
 
 
-_CLASSIFIER_SYSTEM = """You are a routing assistant.
-Given a student message, decide which tools are needed to answer well.
+# Keywords that strongly suggest we should search the user's documents.
+_COURSE_RAG_KEYWORDS = (
+    # English
+    "my course", "my notes", "my document", "my lesson", "my textbook",
+    "my material", "my class", "my syllabus", "the chapter", "this chapter",
+    "the lesson", "uploaded", "what does my", "in my course", "from my course",
+    "according to my", "based on my", "in the notes", "in the document",
+    # French
+    "mon cours", "mes notes", "mon document", "ma leçon", "mon manuel",
+    "ma matière", "ma classe", "le chapitre", "ce chapitre", "la leçon",
+    "d'après mon", "selon mon", "dans mes notes", "dans le document",
+    "dans mon cours",
+)
+
+
+_CLASSIFIER_SYSTEM = """You are a routing assistant for MINDORA, an academic tutor.
+
+Decide which tools are needed to answer the student's message.
+
 Available tools:
   - general_chat : general explanations, definitions, reasoning, teaching
-  - calculator   : plain arithmetic evaluation only
-  - course_rag   : search and answer from the student's own uploaded documents
-                   (use when the student refers to their course, notes,
-                   lessons, chapters, or uploaded materials)
+  - calculator   : plain arithmetic evaluation only (e.g. "2+3", "sqrt(9)")
+  - course_rag   : search and answer from the student's own uploaded documents.
+                   Use this whenever the student mentions their course, notes,
+                   lessons, chapters, uploaded materials, or asks
+                   "what does my ... say".
 
 Reply strictly with a JSON object:
-{"intent": "<short label>", "confidence": <0..1>, "tools": ["..."], "reasoning": "<short>"}
+{"intent": "<short>", "confidence": <0..1>, "tools": ["..."], "reasoning": "<short>"}
 
 Rules:
-- ALWAYS include general_chat unless the message is a pure calculation.
+- ALWAYS include general_chat unless the message is pure arithmetic.
 - If the message is a bare arithmetic expression, include calculator.
-- If the message mentions the student's course, notes, lessons, chapter,
-  "mon cours", "mes notes", "le chapitre", include course_rag.
-- Keep tool list short. Never include a tool not in the list.
+- If ANY of these appear, include course_rag:
+  my course, my notes, my document, my lesson, my textbook, uploaded,
+  chapter, the document, mon cours, mes notes, le chapitre, etc.
+- If unsure, include course_rag anyway — it degrades gracefully if no docs exist.
 """
 
 
@@ -67,20 +94,33 @@ class Orchestrator:
             self.tools["course_rag"] = CourseRagTool(session)
 
     async def run(self, ctx: ToolContext) -> OrchestratorResult:
-        # 1. Classify.
-        decision = await self._classify(ctx.message)
-        selected = [t for t in decision.get("tools", []) if t in self.tools]
-        # course_rag is only available if we have a session.
+        # 1. Heuristic classification (deterministic, no LLM call).
+        heuristic_tools = self._heuristic_tools(ctx.message)
+
+        # 2. LLM classification (may enrich or confirm).
+        llm_decision = await self._classify(ctx.message)
+
+        # 3. Merge: union of tools, filtered by availability.
+        selected: list[str] = []
+        for name in heuristic_tools + llm_decision.get("tools", []):
+            if name in self.tools and name not in selected:
+                selected.append(name)
         if "course_rag" in selected and "course_rag" not in self.tools:
             selected.remove("course_rag")
         if not selected:
             selected = ["general_chat"]
 
-        # 2. Execute tools, collecting results.
+        logger.info(
+            "orchestrator_tools selected=%s heuristic=%s llm=%s",
+            selected,
+            heuristic_tools,
+            llm_decision.get("tools"),
+        )
+
+        # 4. Execute each tool.
         results: list[ToolResult] = []
         for name in selected:
             tool = self.tools[name]
-            # Make session available to tools that need it.
             ctx.extras.setdefault("session", self.session)
             try:
                 r = await tool.execute(ctx)
@@ -89,7 +129,7 @@ class Orchestrator:
                 logger.exception("tool_execution_failed name=%s", name)
                 results.append(ToolResult(text="", tool_name=name, error=str(exc)))
 
-        # 3. Compose the final answer.
+        # 5. Compose.
         composed, model, provider, usage = await self._compose(ctx, results)
 
         tools_used = [
@@ -107,10 +147,26 @@ class Orchestrator:
             model=model,
             provider=provider,
             usage=usage or {},
-            reasoning=decision.get("reasoning"),
+            reasoning=llm_decision.get("reasoning"),
         )
 
-    # ---------- Classification ----------
+    # ---------- Heuristic classifier ----------
+
+    @staticmethod
+    def _heuristic_tools(message: str) -> list[str]:
+        tools: list[str] = ["general_chat"]
+        low = message.lower()
+
+        if _looks_like_arithmetic(message):
+            tools.insert(0, "calculator")
+
+        # Any course-RAG keyword → force course_rag.
+        if any(kw in low for kw in _COURSE_RAG_KEYWORDS):
+            tools.append("course_rag")
+
+        return tools
+
+    # ---------- LLM classifier ----------
 
     async def _classify(self, message: str) -> dict[str, Any]:
         provider = get_chat_provider()
@@ -122,7 +178,7 @@ class Orchestrator:
                 ],
                 temperature=0.0,
                 json_mode=True,
-                max_tokens=200,
+                max_tokens=250,
             )
             data = _safe_json(response.content)
             if data and isinstance(data.get("tools"), list):
@@ -130,21 +186,7 @@ class Orchestrator:
         except Exception as exc:  # noqa: BLE001
             logger.warning("intent_classification_failed error=%s", exc)
 
-        # Fallback heuristic.
-        tools = ["general_chat"]
-        low = message.lower()
-        if _looks_like_arithmetic(message):
-            tools.insert(0, "calculator")
-        if any(k in low for k in ("my course", "my notes", "mon cours", "mes notes",
-                                  "le chapitre", "the chapter", "lesson", "leçon",
-                                  "uploaded", "document")):
-            tools.append("course_rag")
-        return {
-            "intent": "general",
-            "confidence": 0.5,
-            "tools": tools,
-            "reasoning": "heuristic",
-        }
+        return {"intent": "general", "confidence": 0.5, "tools": [], "reasoning": "llm failed"}
 
     # ---------- Composition ----------
 
@@ -166,7 +208,7 @@ class Orchestrator:
             None,
         )
 
-        # Preferred: course_rag gives a grounded answer.
+        # course_rag is authoritative when it produced text.
         if rag:
             prefix = ""
             if calc:
@@ -177,13 +219,12 @@ class Orchestrator:
         if general and not calc:
             return general.text, general.model, general.provider, general.usage
 
-        # Calc only: ask the LLM to explain the result using the value as fact.
+        # Calc only.
         if calc and not general:
             return f"**Computation**\n\n`{calc.text}`", None, None, {}
 
         # Both calc and general: give the LLM the computed result as ground truth.
         if calc and general:
-            # Re-run general chat with the calculator result in the prompt.
             provider = get_chat_provider()
             try:
                 response = await provider.chat(
