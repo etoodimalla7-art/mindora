@@ -33,12 +33,6 @@ until docker exec mindora-redis redis-cli ping >/dev/null 2>&1; do
 done
 info "Redis is ready."
 
-info "Waiting for MinIO..."
-until curl -sf http://localhost:9000/minio/health/live >/dev/null 2>&1; do
-  sleep 1
-done
-info "MinIO is ready."
-
 echo
 echo -e "${GREEN}✅ Development infrastructure is up.${NC}"
 echo
