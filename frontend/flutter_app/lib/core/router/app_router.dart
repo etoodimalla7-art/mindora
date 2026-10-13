@@ -2,9 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../features/home/presentation/home_screen.dart';
 import '../../features/auth/presentation/login_screen.dart';
+import '../../features/home/presentation/home_screen.dart';
 import '../../features/onboarding/presentation/onboarding_screen.dart';
+import '../../features/planner/presentation/screens/create_exam_plan_screen.dart';
+import '../../features/planner/presentation/screens/create_plan_screen.dart';
+import '../../features/planner/presentation/screens/plan_detail_screen.dart';
+import '../../features/planner/presentation/screens/planner_screen.dart';
+import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/shell/presentation/app_shell.dart';
 import '../../features/splash/presentation/splash_screen.dart';
 import '../../features/styleguide/presentation/styleguide_screen.dart';
@@ -51,7 +56,28 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: AppRoutes.planner,
             name: 'planner',
-            builder: (_, __) => const _Placeholder(title: 'Planner'),
+            builder: (_, __) => const PlannerScreen(),
+            routes: [
+              GoRoute(
+                path: 'create',
+                builder: (_, __) => const CreatePlanScreen(),
+                routes: [
+                  GoRoute(
+                    path: 'exam',
+                    builder: (_, __) => const CreateExamPlanScreen(),
+                  ),
+                  GoRoute(
+                    path: 'subject',
+                    builder: (_, __) => const CreateExamPlanScreen(),
+                  ),
+                ],
+              ),
+              GoRoute(
+                path: 'plans/:id',
+                builder: (_, state) =>
+                    PlanDetailScreen(planId: state.pathParameters['id']!),
+              ),
+            ],
           ),
           GoRoute(
             path: AppRoutes.learn,
@@ -61,7 +87,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: AppRoutes.profile,
             name: 'profile',
-            builder: (_, __) => const _Placeholder(title: 'Profile'),
+            builder: (_, __) => const ProfileScreen(),
           ),
         ],
       ),
@@ -75,7 +101,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             children: [
               const Icon(Icons.error_outline, size: 40),
               const SizedBox(height: 12),
-              Text('Page not found\n${state.uri}', textAlign: TextAlign.center),
+              Text('Page not found\n${state.uri}',
+                  textAlign: TextAlign.center),
             ],
           ),
         ),

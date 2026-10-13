@@ -1,5 +1,15 @@
 """ORM models. Importing this package registers all models with Base.metadata."""
+from app.models.plan import StudyPlan, StudySession
+from app.models.progress import TopicProgress
 from app.models.session import Session
 from app.models.user import EducationProfile, Profile, User
 
-__all__ = ["User", "Profile", "EducationProfile", "Session"]
+__all__ = [
+    "User",
+    "Profile",
+    "EducationProfile",
+    "Session",
+    "StudyPlan",
+    "StudySession",
+    "TopicProgress",
+]
