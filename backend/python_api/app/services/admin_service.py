@@ -1,6 +1,7 @@
 """Admin moderation service."""
 from __future__ import annotations
 
+import logging
 import uuid
 
 from sqlalchemy import select
@@ -19,6 +20,8 @@ from app.schemas.admin import (
     RejectResponse,
 )
 from app.services.credit_service import CONTRIBUTION_REWARD, CreditService
+
+logger = logging.getLogger(__name__)
 
 
 class AdminService:
@@ -54,6 +57,20 @@ class AdminService:
         )
 
         await self.session.commit()
+
+        # Index the approved document for RAG (best-effort, non-blocking).
+        try:
+            from ai.rag.embedder import index_document
+
+            count = await index_document(self.session, doc)
+            await self.session.commit()
+            logger.info(
+                "admin_approve_indexed doc_id=%s chunks=%d", doc.id, count
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("admin_approve_index_failed doc_id=%s", doc.id)
+            # Do not fail the approval — indexing can be retried later.
+
         return ApproveResponse(
             document_id=doc.id,
             status=doc.status,
