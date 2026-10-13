@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Response, status
+from fastapi.responses import StreamingResponse
 
 from app.api.deps import CurrentUserId, SessionDep
 from app.schemas.ai import (
@@ -25,6 +26,34 @@ async def chat(
     user_id: CurrentUserId,
 ) -> ChatResponse:
     return await ChatService(session).send(user_id, payload)
+
+
+@router.post("/chat/stream")
+async def chat_stream(
+    payload: ChatRequest,
+    session: SessionDep,
+    user_id: CurrentUserId,
+) -> StreamingResponse:
+    """Server-Sent Events stream.
+
+    Emits:
+      - event: meta  → {"conversation_id": "..."}
+      - event: token → {"text": "chunk"}
+      - event: done  → {"message_id": "...", "tools_used": [...], ...}
+      - event: error → {"message": "..."}
+    """
+    service = ChatService(session)
+    generator = service.send_stream(user_id, payload)
+
+    return StreamingResponse(
+        generator,
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @router.get("/conversations", response_model=list[ConversationOut])
@@ -56,8 +85,6 @@ async def delete_conversation(
     conversation_id: uuid.UUID,
     session: SessionDep,
     user_id: CurrentUserId,
-):
-    from fastapi import Response
-
+) -> Response:
     await ChatService(session).delete_conversation(user_id, conversation_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
