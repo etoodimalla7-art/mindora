@@ -1,13 +1,14 @@
-"""Google Gemini provider (default).
+"""Google Gemini provider using the official google-genai SDK.
 
-Phase 1 implementation is a thin HTTP wrapper using the REST API. Streaming
-and function-calling support are added in Phase 9.
+Supports both new-style (AQ.*) and legacy (AIza*) API keys.
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
-import httpx
+from google import genai
+from google.genai import types as genai_types
 
 from app.core.config import settings
 from app.core.errors import AppError
@@ -22,6 +23,11 @@ logger = get_logger(__name__)
 
 
 def _to_gemini_role(role: str) -> str:
+    """Map our generic roles to Gemini's roles.
+
+    Gemini understands 'user' and 'model'. System prompts are handled
+    separately by the SDK (system_instruction parameter).
+    """
     return {"assistant": "model", "system": "user"}.get(role, role)
 
 
@@ -29,18 +35,28 @@ class GeminiChatProvider:
     name = "gemini"
     default_model = settings.AI_DEFAULT_MODEL
 
-    def __init__(self, api_key: str | None = None, base_url: str | None = None) -> None:
+    def __init__(self, api_key: str | None = None) -> None:
         self._api_key = api_key or settings.GEMINI_API_KEY
-        self._base_url = (base_url or settings.GEMINI_BASE_URL).rstrip("/")
+        self._client: genai.Client | None = None
 
-    def _require_key(self) -> str:
+    def _require_client(self) -> genai.Client:
         if not self._api_key:
             raise AppError(
                 "AI provider is not configured.",
                 code="ai_unconfigured",
                 status_code=503,
             )
-        return self._api_key
+        if self._client is None:
+            try:
+                self._client = genai.Client(api_key=self._api_key)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("gemini_client_init_failed error=%s", exc)
+                raise AppError(
+                    "The AI service is not available.",
+                    code="ai_unavailable",
+                    status_code=502,
+                ) from exc
+        return self._client
 
     async def chat(
         self,
@@ -52,68 +68,107 @@ class GeminiChatProvider:
         json_mode: bool = False,
         extra: dict[str, Any] | None = None,
     ) -> ChatResponse:
-        key = self._require_key()
-        model = model or self.default_model
+        client = self._require_client()
+        model_name = model or self.default_model
+
+        # Split system prompt from the conversation.
+        system_chunks = [m.content for m in messages if m.role == "system"]
+        system_instruction = "\n\n".join(system_chunks) if system_chunks else None
 
         contents = [
-            {"role": _to_gemini_role(m.role), "parts": [{"text": m.content}]} for m in messages
+            genai_types.Content(
+                role=_to_gemini_role(m.role),
+                parts=[genai_types.Part(text=m.content)],
+            )
+            for m in messages
+            if m.role != "system"
         ]
 
-        generation_config: dict[str, Any] = {"temperature": temperature}
-        if max_tokens:
-            generation_config["maxOutputTokens"] = max_tokens
+        config = genai_types.GenerateContentConfig(
+            temperature=temperature,
+            max_output_tokens=max_tokens or 1200,
+            system_instruction=system_instruction,
+        )
         if json_mode:
-            generation_config["responseMimeType"] = "application/json"
-
-        url = f"{self._base_url}/v1beta/models/{model}:generateContent"
-        payload = {"contents": contents, "generationConfig": generation_config}
-
-        async with httpx.AsyncClient(timeout=settings.AI_REQUEST_TIMEOUT_SECONDS) as client:
-            r = await client.post(url, params={"key": key}, json=payload)
-            if r.status_code >= 400:
-                logger.error("gemini_chat_failed", status=r.status_code, body=r.text[:500])
-                raise AppError(
-                    "The AI service is temporarily unavailable.",
-                    code="ai_unavailable",
-                    status_code=502,
-                )
-            data = r.json()
+            config.response_mime_type = "application/json"
 
         try:
-            content = data["candidates"][0]["content"]["parts"][0]["text"]
-        except (KeyError, IndexError) as exc:
+            # The SDK exposes sync and async clients. We use the async
+            # variant via .aio.
+            response = await client.aio.models.generate_content(
+                model=model_name,
+                contents=contents,
+                config=config,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("gemini_chat_failed error=%s", exc)
             raise AppError(
-                "The AI returned an unexpected response.",
-                code="ai_bad_response",
+                "The AI service is temporarily unavailable.",
+                code="ai_unavailable",
                 status_code=502,
             ) from exc
 
+        text = self._extract_text(response)
+        usage = self._extract_usage(response)
+
         return ChatResponse(
-            content=content,
-            model=model,
+            content=text,
+            model=model_name,
             provider=self.name,
-            finish_reason=data.get("candidates", [{}])[0].get("finishReason"),
-            usage=data.get("usageMetadata", {}),
-            raw=data,
+            finish_reason=None,
+            usage=usage,
+            raw={},
         )
+
+    # ---------- Helpers ----------
+
+    @staticmethod
+    def _extract_text(response: Any) -> str:
+        # google-genai exposes response.text in most cases.
+        try:
+            text = response.text
+            if text:
+                return text
+        except Exception:  # noqa: BLE001
+            pass
+        # Fallback: walk candidates/parts manually.
+        try:
+            parts = response.candidates[0].content.parts
+            return "".join(getattr(p, "text", "") or "" for p in parts)
+        except Exception:  # noqa: BLE001
+            return ""
+
+    @staticmethod
+    def _extract_usage(response: Any) -> dict[str, int]:
+        try:
+            meta = response.usage_metadata
+            return {
+                "prompt_tokens": getattr(meta, "prompt_token_count", 0) or 0,
+                "completion_tokens": getattr(meta, "candidates_token_count", 0) or 0,
+                "total_tokens": getattr(meta, "total_token_count", 0) or 0,
+            }
+        except Exception:  # noqa: BLE001
+            return {}
 
 
 class GeminiEmbeddingProvider:
     name = "gemini"
     default_model = settings.AI_EMBEDDING_MODEL
 
-    def __init__(self, api_key: str | None = None, base_url: str | None = None) -> None:
+    def __init__(self, api_key: str | None = None) -> None:
         self._api_key = api_key or settings.GEMINI_API_KEY
-        self._base_url = (base_url or settings.GEMINI_BASE_URL).rstrip("/")
+        self._client: genai.Client | None = None
 
-    def _require_key(self) -> str:
+    def _require_client(self) -> genai.Client:
         if not self._api_key:
             raise AppError(
                 "AI provider is not configured.",
                 code="ai_unconfigured",
                 status_code=503,
             )
-        return self._api_key
+        if self._client is None:
+            self._client = genai.Client(api_key=self._api_key)
+        return self._client
 
     async def embed(
         self,
@@ -121,36 +176,27 @@ class GeminiEmbeddingProvider:
         *,
         model: str | None = None,
     ) -> EmbeddingResponse:
-        key = self._require_key()
-        model = model or self.default_model
-        vectors: list[list[float]] = []
+        client = self._require_client()
+        model_name = model or self.default_model
 
-        async with httpx.AsyncClient(timeout=settings.AI_REQUEST_TIMEOUT_SECONDS) as client:
-            for text in texts:
-                url = f"{self._base_url}/v1beta/models/{model}:embedContent"
-                payload = {"content": {"parts": [{"text": text}]}}
-                r = await client.post(url, params={"key": key}, json=payload)
-                if r.status_code >= 400:
-                    logger.error("gemini_embed_failed", status=r.status_code, body=r.text[:500])
-                    raise AppError(
-                        "The AI service is temporarily unavailable.",
-                        code="ai_unavailable",
-                        status_code=502,
-                    )
-                data = r.json()
-                vector = data.get("embedding", {}).get("values")
-                if not vector:
-                    raise AppError(
-                        "The AI returned an unexpected response.",
-                        code="ai_bad_response",
-                        status_code=502,
-                    )
-                vectors.append(vector)
+        try:
+            response = await client.aio.models.embed_content(
+                model=model_name,
+                contents=texts,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("gemini_embed_failed error=%s", exc)
+            raise AppError(
+                "The AI service is temporarily unavailable.",
+                code="ai_unavailable",
+                status_code=502,
+            ) from exc
 
+        vectors = [list(e.values) for e in response.embeddings]
         dims = len(vectors[0]) if vectors else 0
         return EmbeddingResponse(
             vectors=vectors,
-            model=model,
+            model=model_name,
             provider=self.name,
             dimensions=dims,
         )
