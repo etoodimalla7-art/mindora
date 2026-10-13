@@ -26,6 +26,7 @@ class AuthUser extends Equatable {
     this.fullName,
     required this.preferredLanguage,
     required this.countryCode,
+    this.isAdmin = false,
   });
 
   final String id;
@@ -33,6 +34,7 @@ class AuthUser extends Equatable {
   final String? fullName;
   final String preferredLanguage;
   final String countryCode;
+  final bool isAdmin;
 
   factory AuthUser.fromJson(Map<String, dynamic> json) => AuthUser(
         id: json['id'] as String,
@@ -40,10 +42,12 @@ class AuthUser extends Equatable {
         fullName: json['full_name'] as String?,
         preferredLanguage: (json['preferred_language'] as String?) ?? 'en',
         countryCode: (json['country_code'] as String?) ?? 'CM',
+        isAdmin: (json['is_admin'] as bool?) ?? false,
       );
 
   @override
-  List<Object?> get props => [id, email, fullName, preferredLanguage, countryCode];
+  List<Object?> get props =>
+      [id, email, fullName, preferredLanguage, countryCode, isAdmin];
 }
 
 class AuthSession extends Equatable {

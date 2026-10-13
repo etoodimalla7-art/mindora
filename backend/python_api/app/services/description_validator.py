@@ -1,14 +1,15 @@
-"""Validates a document description against the 500-word rule and anti-spam."""
+"""Validates a document description against the minimum-words rule and anti-spam."""
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
 
-MIN_WORDS = 500
-MIN_UNIQUE_WORDS = 150
-MAX_REPETITION_RATIO = 0.80  # >80% repeated content words → reject
+# Reduced thresholds — 20 words is enough for a meaningful description.
+MIN_WORDS = 20
+MIN_UNIQUE_WORDS = 8
+MIN_CHARACTERS = 60
+MAX_REPETITION_RATIO = 0.85  # >85% repeated content words → reject
 
-# Words that do not count towards repetition analysis (grammar glue).
 STOP_WORDS = {
     # English
     "the", "a", "an", "and", "or", "of", "to", "in", "on", "for", "at",
@@ -27,7 +28,7 @@ STOP_WORDS = {
     "elles", "nous", "vous", "je", "tu", "au", "aux", "par", "en",
     "se", "sa", "son", "ses", "mon", "ma", "mes", "ton", "ta", "tes",
     "ou", "où", "donc", "mais", "si", "comme", "tout", "tous", "aussi",
-    "peut", "doit", "fait", "faire", "fait", "cet", "leur", "leurs",
+    "peut", "doit", "fait", "faire", "cet", "leur", "leurs",
 }
 
 
@@ -50,8 +51,43 @@ def validate_description(text: str | None) -> DescriptionValidationResult:
             failure_reason="Description is empty.",
         )
 
-    # All tokens (including stop words) for the word count.
-    all_tokens = re.findall(r"\b[\wÀ-ÿ'-]+\b", text.lower())
+    stripped = text.strip()
+    if len(stripped) < MIN_CHARACTERS:
+        return DescriptionValidationResult(
+            passed=False,
+            word_count=0,
+            unique_word_count=0,
+            repetition_ratio=0.0,
+            failure_reason=(
+                f"Description is too short. Please write at least "
+                f"{MIN_CHARACTERS} characters."
+            ),
+        )
+
+    if re.search(r"(.)\1{9,}", stripped):
+        return DescriptionValidationResult(
+            passed=False,
+            word_count=0,
+            unique_word_count=0,
+            repetition_ratio=0.0,
+            failure_reason=(
+                "The description contains too many repeated characters. "
+                "Please describe the document in your own words."
+            ),
+        )
+    if re.search(r"[!?]{6,}", stripped):
+        return DescriptionValidationResult(
+            passed=False,
+            word_count=0,
+            unique_word_count=0,
+            repetition_ratio=0.0,
+            failure_reason=(
+                "The description looks like spam. Please write a meaningful "
+                "summary of the document."
+            ),
+        )
+
+    all_tokens = re.findall(r"\b[\wÀ-ÿ'-]+\b", stripped.lower())
     word_count = len(all_tokens)
 
     if word_count < MIN_WORDS:
@@ -66,7 +102,6 @@ def validate_description(text: str | None) -> DescriptionValidationResult:
             ),
         )
 
-    # Content tokens (excluding grammar glue) for the repetition analysis.
     content_tokens = [t for t in all_tokens if t not in STOP_WORDS]
     if not content_tokens:
         return DescriptionValidationResult(
@@ -91,8 +126,8 @@ def validate_description(text: str | None) -> DescriptionValidationResult:
             unique_word_count=unique_count,
             repetition_ratio=round(repetition_ratio, 3),
             failure_reason=(
-                "The description repeats too many words. Please write a "
-                "meaningful description of the document."
+                "The description repeats too many words. Please describe the "
+                "document with more variety."
             ),
         )
 
