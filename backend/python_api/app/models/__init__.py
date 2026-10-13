@@ -1,15 +1,32 @@
 """ORM models. Importing this package registers all models with Base.metadata."""
+from app.models.credit import CreditLedger, Download
+from app.models.document import (
+    Document,
+    DocumentAnalysis,
+    DocumentDuplicate,
+    DescriptionValidation,
+)
 from app.models.plan import StudyPlan, StudySession
 from app.models.progress import TopicProgress
 from app.models.session import Session
 from app.models.user import EducationProfile, Profile, User
 
 __all__ = [
+    # Identity
     "User",
     "Profile",
     "EducationProfile",
     "Session",
+    # Planner
     "StudyPlan",
     "StudySession",
     "TopicProgress",
+    # Documents
+    "Document",
+    "DocumentAnalysis",
+    "DocumentDuplicate",
+    "DescriptionValidation",
+    # Credits
+    "CreditLedger",
+    "Download",
 ]
