@@ -31,7 +31,7 @@ jobs:
         working-directory: frontend/flutter_app
         run: |
           flutter build apk --release \
-            --dart-define=API_BASE_URL=https://urban-couscous-5g7r44jqv5qphpg4v-8000.app.github.dev/api/v1 \
+            --dart-define=API_BASE_URL=https://mindora-w3jv.onrender.com/api/v1 \
             --dart-define=APP_ENV=production
 
       - name: Upload APK
