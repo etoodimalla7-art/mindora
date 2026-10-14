@@ -34,8 +34,7 @@ class MockExamResultsScreen extends ConsumerWidget {
             title: 'Could not load results',
             message: 'Please try again.',
             actionLabel: 'Retry',
-            onAction: () =>
-                ref.invalidate(mockExamResultsProvider(examId)),
+            onAction: () => ref.invalidate(mockExamResultsProvider(examId)),
           ),
           data: (results) => _Body(results: results),
         ),
@@ -58,52 +57,74 @@ class _Body extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.xl),
       children: [
-        // Score card
+        // Score card — column-based to avoid overflow
         AppSurface(
           padding: const EdgeInsets.all(AppSpacing.xl),
           color: (isGood
                   ? const Color(0xFF10B981)
                   : theme.colorScheme.primary)
               .withValues(alpha: 0.08),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AppProgressRing(
-                value: score / 100,
-                size: 96,
-                strokeWidth: 8,
-                centerLabel: Text(
-                  '${score.toStringAsFixed(0)}%',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.xl),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(exam.title, style: theme.textTheme.titleMedium),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${exam.subject} · ${exam.difficulty}',
-                      style: theme.textTheme.labelSmall,
+              // Header row: ring + title
+              Row(
+                children: [
+                  AppProgressRing(
+                    value: score / 100,
+                    size: 88,
+                    strokeWidth: 8,
+                    centerLabel: Text(
+                      '${score.toStringAsFixed(0)}%',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                    const SizedBox(height: AppSpacing.md),
-                    Row(children: [
-                      _stat('✓', '${exam.correctCount ?? 0} correct',
-                          const Color(0xFF10B981)),
-                      const SizedBox(width: 12),
-                      _stat('✗', '${exam.wrongCount ?? 0} wrong',
-                          const Color(0xFFEF4444)),
-                      if ((exam.skippedCount ?? 0) > 0) ...[
-                        const SizedBox(width: 12),
-                        _stat('—', '${exam.skippedCount} skipped',
-                            theme.colorScheme.outline),
+                  ),
+                  const SizedBox(width: AppSpacing.lg),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          exam.title,
+                          style: theme.textTheme.titleMedium,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${exam.subject} · ${exam.difficulty}',
+                          style: theme.textTheme.labelSmall,
+                        ),
                       ],
-                    ]),
-                  ],
-                ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              // Stats — Wrap so it wraps on narrow screens
+              Wrap(
+                spacing: 16,
+                runSpacing: 8,
+                children: [
+                  _stat(
+                    context,
+                    '✓ ${exam.correctCount ?? 0} correct',
+                    const Color(0xFF10B981),
+                  ),
+                  _stat(
+                    context,
+                    '✗ ${exam.wrongCount ?? 0} wrong',
+                    const Color(0xFFEF4444),
+                  ),
+                  if ((exam.skippedCount ?? 0) > 0)
+                    _stat(
+                      context,
+                      '— ${exam.skippedCount} skipped',
+                      theme.colorScheme.outline,
+                    ),
+                ],
               ),
             ],
           ),
@@ -120,7 +141,6 @@ class _Body extends StatelessWidget {
           ),
         ],
 
-        // Topic breakdown
         if (results.topicBreakdown.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.xl),
           Text('Performance by topic', style: theme.textTheme.titleMedium),
@@ -175,14 +195,21 @@ class _Body extends StatelessWidget {
     );
   }
 
-  Widget _stat(String icon, String label, Color color) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(icon, style: TextStyle(color: color, fontWeight: FontWeight.w700)),
-        const SizedBox(width: 4),
-        Text(label, style: TextStyle(fontSize: 12, color: color)),
-      ],
+  Widget _stat(BuildContext context, String label, Color color) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: color,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 
@@ -197,12 +224,15 @@ class _Body extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: Text(topic, style: theme.textTheme.bodyMedium),
+              child: Text(
+                topic,
+                style: theme.textTheme.bodyMedium,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-            Text(
-              '$correct / $total',
-              style: theme.textTheme.labelSmall,
-            ),
+            const SizedBox(width: 8),
+            Text('$correct / $total', style: theme.textTheme.labelSmall),
           ],
         ),
         const SizedBox(height: 4),
@@ -257,6 +287,7 @@ class _CorrectionCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(icon, color: color, size: 20),
                 const SizedBox(width: AppSpacing.sm),
@@ -271,31 +302,27 @@ class _CorrectionCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: AppSpacing.md),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Text(
-                    'Your answer: ${answer.userAnswer ?? '(skipped)'}',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: isCorrect
-                          ? const Color(0xFF10B981)
-                          : const Color(0xFFEF4444),
-                    ),
-                  ),
-                ),
-                if (!isCorrect)
-                  Expanded(
-                    child: Text(
-                      'Correct: ${answer.correctAnswer}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF10B981),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-              ],
+            // Column instead of Row to avoid horizontal overflow
+            _answerLine(
+              context,
+              label: 'Your answer',
+              value: answer.userAnswer?.isNotEmpty == true
+                  ? answer.userAnswer!
+                  : '(skipped)',
+              color: isCorrect
+                  ? const Color(0xFF10B981)
+                  : (isSkipped ? theme.colorScheme.outline : const Color(0xFFEF4444)),
             ),
+            if (!isCorrect) ...[
+              const SizedBox(height: 4),
+              _answerLine(
+                context,
+                label: 'Correct',
+                value: answer.correctAnswer,
+                color: const Color(0xFF10B981),
+                bold: true,
+              ),
+            ],
             if (answer.explanation != null) ...[
               const SizedBox(height: AppSpacing.sm),
               Container(
@@ -312,6 +339,34 @@ class _CorrectionCard extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _answerLine(
+    BuildContext context, {
+    required String label,
+    required String value,
+    required Color color,
+    bool bold = false,
+  }) {
+    final theme = Theme.of(context);
+    return RichText(
+      text: TextSpan(
+        style: theme.textTheme.bodySmall,
+        children: [
+          TextSpan(
+            text: '$label: ',
+            style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.6)),
+          ),
+          TextSpan(
+            text: value,
+            style: TextStyle(
+              color: color,
+              fontWeight: bold ? FontWeight.w700 : FontWeight.w500,
+            ),
+          ),
+        ],
       ),
     );
   }
