@@ -12,6 +12,7 @@ from app.models.mock_exam import MockAnswer, MockExam, MockQuestion
 from app.models.plan import StudyPlan, StudySession
 from app.models.progress import TopicProgress
 from app.models.session import Session
+from app.models.subscription import Payment, Plan, Subscription
 from app.models.user import EducationProfile, Profile, User
 
 __all__ = [
@@ -34,4 +35,7 @@ __all__ = [
     "MockExam",
     "MockQuestion",
     "MockAnswer",
+    "Plan",
+    "Subscription",
+    "Payment",
 ]
