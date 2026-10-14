@@ -1,4 +1,4 @@
-import 'package:file_picker/file_picker.dart';
+import '../../features/documents/presentation/screens/upload_file_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -10,7 +10,6 @@ import '../../features/auth/presentation/login_screen.dart';
 import '../../features/documents/presentation/screens/documents_home_screen.dart';
 import '../../features/documents/presentation/screens/my_contributions_screen.dart';
 import '../../features/documents/presentation/screens/upload_description_screen.dart';
-import '../../features/documents/presentation/screens/upload_file_screen.dart';
 import '../../features/documents/presentation/screens/upload_metadata_screen.dart';
 import '../../features/documents/presentation/screens/upload_progress_screen.dart';
 import '../../features/home/presentation/home_screen.dart';
@@ -67,7 +66,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/documents/upload/metadata',
         builder: (_, state) {
-          final file = state.extra as PlatformFile;
+          final file = state.extra as PickedFile;
           return UploadMetadataScreen(file: file);
         },
       ),
