@@ -25,3 +25,5 @@ COPY alembic.ini ./
 EXPOSE 8000
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# Force rebuild: Wed Oct 14 22:34:36 UTC 2026
