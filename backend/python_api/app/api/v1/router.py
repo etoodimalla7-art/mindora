@@ -11,6 +11,7 @@ from app.api.v1 import (
     dashboard,
     documents,
     health,
+    mock_exams,
     planner,
     users,
 )
@@ -25,3 +26,6 @@ api_router.include_router(documents.router, prefix="/documents", tags=["document
 api_router.include_router(credits.router, prefix="/credits", tags=["credits"])
 api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
 api_router.include_router(ai.router, prefix="/ai", tags=["ai"])
+api_router.include_router(
+    mock_exams.router, prefix="/mock-exams", tags=["mock-exams"]
+)
