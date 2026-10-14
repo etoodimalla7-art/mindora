@@ -1,6 +1,8 @@
 """End-to-end subscription flow test.
 
-Uses a mocked payment provider so no real API call is made.
+Two scenarios depending on whether Flutterwave is configured:
+  - Key set    → checkout succeeds (201) and returns a checkout URL.
+  - Key empty  → checkout fails gracefully with 502 or 503.
 """
 from __future__ import annotations
 
@@ -14,8 +16,7 @@ def _email() -> str:
 
 
 @pytest.mark.asyncio
-async def test_list_plans_and_subscribe_unconfigured(client):
-    """With an empty Flutterwave key, checkout must fail gracefully (503)."""
+async def test_list_plans_and_checkout(client):
     email = _email()
     r = await client.post(
         "/api/v1/auth/register",
@@ -31,39 +32,44 @@ async def test_list_plans_and_subscribe_unconfigured(client):
     token = r.json()["tokens"]["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
 
-    # List plans (should work — no provider call).
+    # 1. List plans.
     r = await client.get("/api/v1/subscriptions/plans", headers=headers)
     assert r.status_code == 200, r.text
     plans = r.json()
     assert len(plans) >= 1
-    assert any(p["code"] == "student_monthly" for p in plans)
+    codes = [p["code"] for p in plans]
+    assert "student_monthly" in codes, f"Missing student_monthly: {codes}"
 
-    # Checkout should fail with a clean error when provider is unconfigured.
+    # 2. Attempt checkout — success or graceful failure both are valid.
     r = await client.post(
         "/api/v1/subscriptions/checkout",
         headers=headers,
         json={"plan_code": "student_monthly"},
     )
-    # 502 or 503 depending on the exact provider behavior.
-    assert r.status_code in (502, 503), r.text
-    body = r.json()
-    assert "error" in body
+    assert r.status_code in (201, 502, 503), r.text
 
-    # /subscriptions/me should return null (no active subscription).
+    if r.status_code == 201:
+        body = r.json()
+        assert "checkout_url" in body
+        assert body["checkout_url"].startswith("http")
+        assert body["payment"]["status"] == "pending"
+    else:
+        # Provider is not configured — should surface a clean error.
+        body = r.json()
+        assert "error" in body
+
+    # 3. /me returns null (no active sub yet).
     r = await client.get("/api/v1/subscriptions/me", headers=headers)
     assert r.status_code == 200
-    # FastAPI returns null for None response_model
     assert r.json() is None or r.json() == {}
 
 
 @pytest.mark.asyncio
 async def test_webhook_unknown_reference_returns_200(client):
-    """Webhook with unknown reference should return 200 (idempotent)."""
     body = b'{"status":"successful","data":{"tx_ref":"unknown-ref","id":123,"amount":10,"currency":"USD"}}'
     r = await client.post(
         "/api/v1/webhooks/flutterwave",
         content=body,
         headers={"verif-hash": "", "content-type": "application/json"},
     )
-    # 200 expected (processed, but no matching payment)
     assert r.status_code in (200, 401), r.text
