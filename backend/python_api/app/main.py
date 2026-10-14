@@ -18,14 +18,6 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     configure_logging()
-    # DEBUG ENV — à retirer après
-    import os
-    logger.info(
-        "DEBUG ENV",
-        database_url=os.environ.get("DATABASE_URL", "MISSING")[:80],
-        database_url_sync=os.environ.get("DATABASE_URL_SYNC", "MISSING")[:80],
-        app_env=os.environ.get("APP_ENV", "MISSING"),
-    )
     logger.info(
         "app_starting",
         app=settings.APP_NAME,
