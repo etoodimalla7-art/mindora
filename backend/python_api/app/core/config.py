@@ -62,13 +62,13 @@ class Settings(BaseSettings):
     S3_USE_SSL: bool = False
 
     # ---------- Vector ----------
-    VECTOR_DIM: int = 1536
+    VECTOR_DIM: int = 768
 
     # ---------- AI ----------
     AI_DEFAULT_PROVIDER: Literal["gemini", "openai", "anthropic"] = "gemini"
-    AI_DEFAULT_MODEL: str = "gemini-1.5-flash"
+    AI_DEFAULT_MODEL: str = "gemini-3.1-flash-lite"
     AI_EMBEDDING_PROVIDER: str = "gemini"
-    AI_EMBEDDING_MODEL: str = "text-embedding-004"
+    AI_EMBEDDING_MODEL: str = "gemini-embedding-001"
     AI_REQUEST_TIMEOUT_SECONDS: int = 60
     AI_MAX_RETRIES: int = 2
 
@@ -85,6 +85,24 @@ class Settings(BaseSettings):
     BRAVE_SEARCH_API_KEY: str = ""
     SERPAPI_API_KEY: str = ""
 
+    # ---------- Payments ----------
+    PAYMENT_PROVIDER: Literal["none", "flutterwave", "stripe", "campay"] = "flutterwave"
+    PAYMENT_REDIRECT_SUCCESS_URL: str = (
+        "http://localhost:3000/#/subscription/success"
+    )
+    PAYMENT_REDIRECT_FAILURE_URL: str = (
+        "http://localhost:3000/#/subscription/failure"
+    )
+
+    FLUTTERWAVE_SECRET_KEY: str = ""
+    FLUTTERWAVE_WEBHOOK_HASH: str = ""
+    FLUTTERWAVE_BASE_URL: str = "https://api.flutterwave.com"
+
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+
+    CAMPAY_APP_TOKEN: str = ""
+
     # ---------- Rate limiting ----------
     RATE_LIMIT_PER_MINUTE: int = 60
     RATE_LIMIT_UPLOAD_PER_HOUR: int = 20
@@ -93,7 +111,7 @@ class Settings(BaseSettings):
     FEATURE_WEB_RESEARCH: bool = False
     FEATURE_VOICE: bool = False
     FEATURE_VISION: bool = False
-    FEATURE_PAYMENTS: bool = False
+    FEATURE_PAYMENTS: bool = True
     FEATURE_CONTRIBUTIONS: bool = True
 
     # ---------- Observability ----------

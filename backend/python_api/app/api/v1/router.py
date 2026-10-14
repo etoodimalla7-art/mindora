@@ -13,7 +13,9 @@ from app.api.v1 import (
     health,
     mock_exams,
     planner,
+    subscriptions,
     users,
+    webhooks,
 )
 
 api_router = APIRouter()
@@ -29,3 +31,7 @@ api_router.include_router(ai.router, prefix="/ai", tags=["ai"])
 api_router.include_router(
     mock_exams.router, prefix="/mock-exams", tags=["mock-exams"]
 )
+api_router.include_router(
+    subscriptions.router, prefix="/subscriptions", tags=["subscriptions"]
+)
+api_router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
