@@ -41,7 +41,6 @@ class MockExamService:
     async def create(
         self, user_id: uuid.UUID, payload: CreateMockExamRequest
     ) -> MockExamDetail:
-        # 1. Create the exam shell.
         exam = MockExam(
             user_id=user_id,
             title=payload.title,
@@ -56,7 +55,6 @@ class MockExamService:
         self.session.add(exam)
         await self.session.flush()
 
-        # 2. Generate questions via AI.
         generated = await generate_questions(
             self.session,
             user_id=user_id,
@@ -73,7 +71,6 @@ class MockExamService:
                 "subject, then try again."
             )
 
-        # 3. Persist the questions.
         for q in generated:
             self.session.add(
                 MockQuestion(
@@ -95,7 +92,9 @@ class MockExamService:
 
         await self.session.commit()
         await self.session.refresh(exam)
-        return await self._to_detail(exam, reveal_answers=False)
+
+        # Reload with questions eagerly (refresh doesn't populate relationships).
+        return await self.get(user_id, exam.id)
 
     # ---------- Start ----------
 
@@ -108,8 +107,7 @@ class MockExamService:
         exam.status = MOCK_STATUS_IN_PROGRESS
         exam.started_at = datetime.now(UTC)
         await self.session.commit()
-        await self.session.refresh(exam)
-        return await self._to_detail(exam, reveal_answers=False)
+        return await self.get(user_id, exam_id)
 
     # ---------- Submit answer ----------
 
@@ -129,9 +127,8 @@ class MockExamService:
         if not question:
             raise NotFoundError("Question not found in this exam.")
 
-        # Upsert the answer.
         existing = next(
-            (a for a in exam_answers(exam) if a.question_id == question.id),
+            (a for a in _collect_answers(exam) if a.question_id == question.id),
             None,
         )
         if existing:
@@ -148,8 +145,7 @@ class MockExamService:
             )
 
         await self.session.commit()
-        await self.session.refresh(exam)
-        return await self._to_detail(exam, reveal_answers=False)
+        return await self.get(user_id, exam_id)
 
     # ---------- Submit (finalize + grade) ----------
 
@@ -157,23 +153,23 @@ class MockExamService:
         self, user_id: uuid.UUID, exam_id: uuid.UUID
     ) -> MockExamResults:
         exam = await self._get(user_id, exam_id)
+        if exam.status == MOCK_STATUS_GRADED:
+            # Idempotent: already graded, just return results.
+            return await self._to_results(exam)
         if exam.status not in (MOCK_STATUS_IN_PROGRESS, MOCK_STATUS_SUBMITTED):
             raise ConflictError(
                 f"Cannot submit an exam in status '{exam.status}'."
             )
 
-        # Grade each answer.
         correct = 0
         wrong = 0
         skipped = 0
         for q in exam.questions:
             answer = next(
-                (a for a in exam_answers(exam) if a.question_id == q.id), None
+                (a for a in _collect_answers(exam) if a.question_id == q.id),
+                None,
             )
-            if answer is None:
-                skipped += 1
-                continue
-            if not answer.user_answer:
+            if answer is None or not answer.user_answer:
                 skipped += 1
                 continue
             is_ok = _is_correct(q, answer.user_answer)
@@ -197,8 +193,9 @@ class MockExamService:
         exam.feedback_summary = _build_summary(score, correct, wrong, skipped)
 
         await self.session.commit()
-        await self.session.refresh(exam)
-        return await self._to_results(exam)
+
+        # Reload with questions + answers eagerly.
+        return await self.results(user_id, exam_id)
 
     # ---------- Read ----------
 
@@ -206,8 +203,8 @@ class MockExamService:
         self, user_id: uuid.UUID, exam_id: uuid.UUID
     ) -> MockExamDetail:
         exam = await self._get(user_id, exam_id)
-        reveal = exam.status in (MOCK_STATUS_GRADED,)
-        return await self._to_detail(exam, reveal_answers=reveal)
+        reveal = exam.status == MOCK_STATUS_GRADED
+        return self._to_detail(exam, reveal_answers=reveal)
 
     async def results(
         self, user_id: uuid.UUID, exam_id: uuid.UUID
@@ -215,7 +212,7 @@ class MockExamService:
         exam = await self._get(user_id, exam_id)
         if exam.status != MOCK_STATUS_GRADED:
             raise ConflictError("The exam has not been graded yet.")
-        return await self._to_results(exam)
+        return self._to_results(exam)
 
     async def list_exams(self, user_id: uuid.UUID) -> list[MockExamOut]:
         stmt = (
@@ -233,46 +230,59 @@ class MockExamService:
     # ---------- Internals ----------
 
     async def _get(self, user_id: uuid.UUID, exam_id: uuid.UUID) -> MockExam:
-        stmt = select(MockExam).where(
-            MockExam.id == exam_id,
-            MockExam.user_id == user_id,
-            MockExam.deleted_at.is_(None),
+        """Load the exam with all its questions and answers eagerly loaded."""
+        from sqlalchemy.orm import selectinload
+
+        stmt = (
+            select(MockExam)
+            .where(
+                MockExam.id == exam_id,
+                MockExam.user_id == user_id,
+                MockExam.deleted_at.is_(None),
+            )
+            .options(
+                selectinload(MockExam.questions).selectinload(
+                    MockQuestion.answers
+                ),
+            )
         )
         exam = (await self.session.execute(stmt)).scalar_one_or_none()
         if not exam:
             raise NotFoundError("Exam not found.")
         return exam
 
-    async def _to_detail(
+    def _to_detail(
         self, exam: MockExam, *, reveal_answers: bool
     ) -> MockExamDetail:
-        questions = []
+        base = MockExamOut.model_validate(exam).model_dump()
+        questions_payload = []
         for q in exam.questions:
-            data = {
+            item = {
                 "id": q.id,
                 "position": q.position,
                 "question_type": q.question_type,
                 "prompt": q.prompt,
-                "options": q.options,
+                "options": list(q.options or []),
                 "difficulty": q.difficulty,
                 "points": q.points,
             }
             if reveal_answers:
-                data["correct_answer"] = q.correct_answer
-                data["explanation"] = q.explanation
-            questions.append(data)
+                item["correct_answer"] = q.correct_answer
+                item["explanation"] = q.explanation
+            questions_payload.append(item)
 
-        return MockExamDetail(
-            **MockExamOut.model_validate(exam).model_dump(),
-            questions=questions,  # type: ignore[arg-type]
-        )
+        return MockExamDetail(**base, questions=questions_payload)
 
-    async def _to_results(self, exam: MockExam) -> MockExamResults:
+    def _to_results(self, exam: MockExam) -> MockExamResults:
+        base = MockExamOut.model_validate(exam).model_dump()
+
+        all_answers = {a.question_id: a for a in _collect_answers(exam)}
+
         answers: list[AnswerResult] = []
+        topics: dict[str, dict[str, int]] = {}
+
         for q in exam.questions:
-            a = next(
-                (x for x in exam_answers(exam) if x.question_id == q.id), None
-            )
+            a = all_answers.get(q.id)
             answers.append(
                 AnswerResult(
                     question_id=q.id,
@@ -285,20 +295,14 @@ class MockExamService:
                 )
             )
 
-        # Topic breakdown from question metadata
-        topics: dict[str, dict[str, int]] = {}
-        for q in exam.questions:
-            topic = (q.metadata_json or {}).get("topic", "general")
+            topic = str((q.metadata_json or {}).get("topic") or "general")
             topics.setdefault(topic, {"total": 0, "correct": 0})
             topics[topic]["total"] += 1
-            a = next(
-                (x for x in exam_answers(exam) if x.question_id == q.id), None
-            )
             if a and a.is_correct:
                 topics[topic]["correct"] += 1
 
         return MockExamResults(
-            **MockExamOut.model_validate(exam).model_dump(),
+            **base,
             answers=answers,
             feedback_summary=exam.feedback_summary,
             topic_breakdown=topics,
@@ -308,15 +312,11 @@ class MockExamService:
 # ---------- Helpers ----------
 
 
-def exam_answers(exam: MockExam) -> list[MockAnswer]:
-    """Return the answers attached to this exam.
-
-    SQLAlchemy lazy loads from the relationship; we walk questions because
-    answers are attached to questions in our schema.
-    """
+def _collect_answers(exam: MockExam) -> list[MockAnswer]:
+    """Gather all answers for an exam via its loaded questions."""
     collected: list[MockAnswer] = []
     for q in exam.questions:
-        collected.extend(q.answers or [])
+        collected.extend(list(q.answers or []))
     return collected
 
 
@@ -324,11 +324,9 @@ def _is_correct(question: MockQuestion, user_answer: str) -> bool:
     ua = (user_answer or "").strip().lower()
     ca = (question.correct_answer or "").strip().lower()
     if question.question_type == "mcq":
-        # Compare only the letter (A/B/C/D).
         return ua == ca or ua.startswith(ca)
     if question.question_type == "true_false":
         return ua == ca
-    # short_answer: tolerant comparison — exact match or substring.
     return ua == ca or ca in ua or ua in ca
 
 
