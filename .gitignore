@@ -82,3 +82,4 @@ logs/
 # ---------- Coverage & reports ----------
 coverage/
 reports/
+.env.render
