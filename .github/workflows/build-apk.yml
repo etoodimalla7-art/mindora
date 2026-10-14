@@ -1,0 +1,41 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/flutter_app/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Get dependencies
+        working-directory: frontend/flutter_app
+        run: flutter pub get
+
+      - name: Build APK
+        working-directory: frontend/flutter_app
+        run: |
+          flutter build apk --release \
+            --dart-define=API_BASE_URL=https://urban-couscous-5g7r44jqv5qphpg4v-8000.app.github.dev/api/v1 \
+            --dart-define=APP_ENV=production
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mindora-apk
+          path: frontend/flutter_app/build/app/outputs/flutter-apk/app-release.apk
