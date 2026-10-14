@@ -1,9 +1,28 @@
-import 'package:file_picker/file_picker.dart';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/design/tokens/app_spacing.dart';
 import '../../../../core/design/widgets/widgets.dart';
+
+/// A picked file, normalized across platforms.
+class PickedFile {
+  const PickedFile({
+    required this.name,
+    required this.path,
+    required this.bytes,
+    required this.size,
+  });
+
+  final String name;
+  final String? path;
+  final Uint8List? bytes;
+  final int size;
+}
 
 class UploadFileScreen extends StatefulWidget {
   const UploadFileScreen({super.key});
@@ -13,25 +32,53 @@ class UploadFileScreen extends StatefulWidget {
 }
 
 class _UploadFileScreenState extends State<UploadFileScreen> {
-  PlatformFile? _picked;
+  PickedFile? _picked;
 
   Future<void> _pick() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['pdf', 'txt', 'md', 'docx', 'png', 'jpg', 'jpeg'],
-      withData: true, // REQUIRED for web — populates file.bytes
+    const typeGroup = XTypeGroup(
+      label: 'Documents',
+      extensions: ['pdf', 'txt', 'md', 'docx', 'png', 'jpg', 'jpeg'],
     );
-    if (result != null && result.files.isNotEmpty) {
-      setState(() => _picked = result.files.first);
+
+    try {
+      final XFile? file = await openFile(acceptedTypeGroups: [typeGroup]);
+      if (file == null) return;
+
+      Uint8List? bytes;
+      int size = 0;
+
+      if (kIsWeb) {
+        bytes = await file.readAsBytes();
+        size = bytes.length;
+      } else {
+        size = await file.length();
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _picked = PickedFile(
+          name: file.name,
+          path: kIsWeb ? null : file.path,
+          bytes: bytes,
+          size: size,
+        );
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('We could not open the file picker.')),
+      );
     }
   }
 
   void _continue() {
     if (_picked == null) return;
-    context.push(
-      '/documents/upload/metadata',
-      extra: _picked,
-    );
+    context.push('/documents/upload/metadata', extra: _picked);
+  }
+
+  String _formatSize(int bytes) {
+    if (bytes == 0) return '—';
+    return '${(bytes / 1024).toStringAsFixed(1)} KB';
   }
 
   @override
@@ -90,7 +137,7 @@ class _UploadFileScreenState extends State<UploadFileScreen> {
                       if (hasFile) ...[
                         const SizedBox(height: 4),
                         Text(
-                          '${(_picked!.size / 1024).toStringAsFixed(1)} KB',
+                          _formatSize(_picked!.size),
                           style: theme.textTheme.bodySmall,
                         ),
                       ],

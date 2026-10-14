@@ -1,10 +1,10 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/design/tokens/app_spacing.dart';
 import '../../../../core/design/widgets/widgets.dart';
+import 'upload_file_screen.dart' show PickedFile;
 
 const _categories = [
   'Mathematics', 'Physics', 'Chemistry', 'Biology', 'Computer Science',
@@ -24,7 +24,7 @@ const _docTypes = [
 
 class UploadMetadataScreen extends ConsumerStatefulWidget {
   const UploadMetadataScreen({super.key, required this.file});
-  final PlatformFile file;
+  final PickedFile file;
 
   @override
   ConsumerState<UploadMetadataScreen> createState() =>

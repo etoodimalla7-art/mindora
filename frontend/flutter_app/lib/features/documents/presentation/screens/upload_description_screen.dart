@@ -1,4 +1,3 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -7,6 +6,7 @@ import '../../../../core/design/tokens/app_spacing.dart';
 import '../../../../core/design/widgets/widgets.dart';
 import '../../data/documents_providers.dart';
 import '../widgets/word_counter.dart';
+import 'upload_file_screen.dart' show PickedFile;
 
 class UploadDescriptionScreen extends ConsumerStatefulWidget {
   const UploadDescriptionScreen({super.key, required this.payload});
@@ -43,10 +43,9 @@ class _UploadDescriptionScreenState
 
     setState(() => _submitting = true);
     try {
-      final file = widget.payload['file'] as PlatformFile;
+      final file = widget.payload['file'] as PickedFile;
       final repo = ref.read(documentsRepositoryProvider);
 
-      // 1. Upload — prefer bytes (works on web), fall back to path.
       final doc = await repo.upload(
         bytes: file.bytes,
         filePath: file.path,
@@ -56,7 +55,6 @@ class _UploadDescriptionScreenState
         description: _description.text,
       );
 
-      // 2. Submit for analysis.
       await repo.submit(
         id: doc.id,
         category: widget.payload['category'] as String,
@@ -69,13 +67,12 @@ class _UploadDescriptionScreenState
         documentType: widget.payload['docType'] as String?,
       );
 
-      // 3. Refresh caches.
       ref.invalidate(myDocumentsProvider);
       ref.invalidate(creditBalanceProvider);
 
       if (!mounted) return;
       context.go('/documents/progress/${doc.id}');
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
