@@ -14,7 +14,7 @@ from sqlalchemy import (
     Text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, SoftDeleteMixin, TimestampMixin, UUIDMixin
 
@@ -108,6 +108,8 @@ class Subscription(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
     )
 
     metadata_json: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+
+    plan = relationship("Plan", lazy="selectin")
 
 
 class Payment(Base, UUIDMixin, TimestampMixin):
