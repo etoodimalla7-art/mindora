@@ -1,5 +1,5 @@
 # Override to force file_picker and its transitive deps
 # to use the latest compileSdk 36 compatible versions.
 dependency_overrides:
-  file_picker: ^8.3.7
+  file_picker: ^10.3.7
   flutter_plugin_android_lifecycle: ^2.0.24

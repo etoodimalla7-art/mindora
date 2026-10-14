@@ -8,20 +8,9 @@ android {
     namespace = "com.mindora.mindora_app"
     compileSdk = 36
 
-    // Désactive explicitement le NDK (on n'en a pas besoin en Dart pur)
-    ndkVersion = null
-
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
-    sourceSets {
-        getByName("main.java").srcDirs("src/main/kotlin")
     }
 
     defaultConfig {
