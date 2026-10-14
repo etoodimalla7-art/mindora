@@ -1,44 +1,49 @@
-"""Shared pytest fixtures.
+"""Shared pytest fixtures for MINDORA tests.
 
-Note on asyncpg/SQLAlchemy warnings:
-    SQLAlchemy keeps pooled asyncpg connections alive. When pytest closes
-    the event loop at the end of the session, the GC tries to clean them
-    up against a dead loop and prints "Event loop is closed" warnings.
+The warnings about "Event loop is closed" are emitted by Python's garbage
+collector at process shutdown, AFTER all tests have passed. They are
+harmless but noisy. We silence them cleanly by:
 
-    We avoid this by disabling the connection pool for tests via
-    ``NullPool`` — every request opens and closes its own connection, so
-    nothing is left over when the loop dies.
+1. Using NullPool so no connections stay open between tests.
+2. Explicitly disposing the engine inside the last async fixture.
+3. Suppressing leftover GC warnings at process exit.
 """
 from __future__ import annotations
 
+import asyncio
+import gc
+import warnings
 from collections.abc import AsyncGenerator
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
-# IMPORTANT: patch the engine BEFORE importing app.main (which imports
-# the session module and instantiates the engine with the default pool).
-from sqlalchemy.ext.asyncio import create_async_engine
-
+# ----------------------------------------------------------------------
+# Patch the engine BEFORE importing app.main
+# ----------------------------------------------------------------------
 from app.core.config import settings  # noqa: E402
 
-_original_engine = create_async_engine(
+_test_engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,
-    poolclass=NullPool,  # <-- disables pooling
+    poolclass=NullPool,
     future=True,
 )
 
 import app.db.session as _session_module  # noqa: E402
 
-_session_module.engine = _original_engine
-_session_module.AsyncSessionLocal.configure(bind=_original_engine)
+_session_module.engine = _test_engine
+_session_module.AsyncSessionLocal.configure(bind=_test_engine)
 
 from app.main import create_app  # noqa: E402
 
 
+# ----------------------------------------------------------------------
+# Fixtures
+# ----------------------------------------------------------------------
 @pytest.fixture(scope="session")
 def app():
     return create_app()
@@ -49,3 +54,39 @@ async def client(app) -> AsyncGenerator[AsyncClient, None]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
+
+
+# ----------------------------------------------------------------------
+# Teardown: dispose the engine while the loop is still alive
+# ----------------------------------------------------------------------
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def _dispose_engine_at_end():
+    """Yield control to the test session, then dispose the engine cleanly."""
+    yield
+    try:
+        await _test_engine.dispose()
+    except Exception:
+        pass
+    # Give asyncpg a tick to finish its close handshake.
+    await asyncio.sleep(0)
+    gc.collect()
+
+
+# ----------------------------------------------------------------------
+# Global warnings filter (belt & suspenders)
+# ----------------------------------------------------------------------
+def pytest_configure(config):
+    warnings.filterwarnings(
+        "ignore",
+        message=".*Event loop is closed.*",
+        category=RuntimeWarning,
+    )
+    warnings.filterwarnings(
+        "ignore",
+        message=".*non-checked-in connection.*",
+        category=Warning,
+    )
+    warnings.filterwarnings(
+        "ignore",
+        category=DeprecationWarning,
+    )

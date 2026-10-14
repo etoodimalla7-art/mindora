@@ -28,8 +28,6 @@ async def test_register_login_me_refresh_logout(client):
     )
     assert r.status_code == 201, r.text
     body = r.json()
-    access = body["tokens"]["access_token"]
-    refresh = body["tokens"]["refresh_token"]
     assert body["user"]["email"] == email
 
     # Login
@@ -71,11 +69,13 @@ async def test_register_login_me_refresh_logout(client):
 
     # Logout
     r = await client.post("/api/v1/auth/logout", json={"refresh_token": new_refresh})
-    assert r.status_code == 204
+    assert r.status_code == 204, r.text
 
-    # Refresh after logout must fail
+    # Refresh after logout MUST fail
     r = await client.post("/api/v1/auth/refresh", json={"refresh_token": new_refresh})
-    assert r.status_code == 401
+    assert r.status_code == 401, (
+        f"Expected 401 after logout, got {r.status_code}: {r.text}"
+    )
 
 
 @pytest.mark.asyncio
@@ -83,7 +83,12 @@ async def test_login_wrong_password(client):
     email = _rand_email()
     await client.post(
         "/api/v1/auth/register",
-        json={"email": email, "password": "RightPass123!", "preferred_language": "en", "country_code": "CM"},
+        json={
+            "email": email,
+            "password": "RightPass123!",
+            "preferred_language": "en",
+            "country_code": "CM",
+        },
     )
     r = await client.post(
         "/api/v1/auth/login",
@@ -95,7 +100,12 @@ async def test_login_wrong_password(client):
 @pytest.mark.asyncio
 async def test_register_duplicate_email(client):
     email = _rand_email()
-    payload = {"email": email, "password": "Passw0rd!", "preferred_language": "en", "country_code": "CM"}
+    payload = {
+        "email": email,
+        "password": "Passw0rd!",
+        "preferred_language": "en",
+        "country_code": "CM",
+    }
     r1 = await client.post("/api/v1/auth/register", json=payload)
     assert r1.status_code == 201
     r2 = await client.post("/api/v1/auth/register", json=payload)
