@@ -1,5 +1,4 @@
 # Override to force file_picker and its transitive deps
-# to use the latest versions compatible with Flutter 3.47 (Built-in Kotlin).
+# to use the latest versions compatible with Flutter 3.47.
 dependency_overrides:
   file_picker: ^13.1.0
-  flutter_plugin_android_lifecycle: ^2.0.24
