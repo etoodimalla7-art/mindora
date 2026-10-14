@@ -20,3 +20,17 @@ async def client(app) -> AsyncGenerator[AsyncClient, None]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
+
+import pytest_asyncio
+
+
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def _cleanup_engine():
+    """Dispose the SQLAlchemy engine after all tests to avoid event-loop warnings."""
+    yield
+    from app.db.session import engine
+    try:
+        await engine.dispose()
+    except Exception:
+        pass
+
