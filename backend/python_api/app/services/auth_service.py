@@ -48,12 +48,12 @@ class AuthService:
             country_code=country_code,
         )
 
-               # Bootstrap: promote to admin if no admin exists yet.
+        # Bootstrap: promote to admin if no admin exists yet.
         admin_count_stmt = select(func.count(User.id)).where(User.is_admin.is_(True))
         admin_count = (await self.session.execute(admin_count_stmt)).scalar() or 0
         if admin_count == 0:
             user.is_admin = True
-            
+
         # Grant the signup bonus.
         await CreditService(self.session).grant_signup_bonus(user.id)
 
@@ -98,7 +98,8 @@ class AuthService:
         if not session_row:
             raise UnauthorizedError("Refresh token is expired or revoked.")
 
-        await self.sessions.revoke(session_row)
+        # Rotate: revoke all sessions with this hash, issue a new one.
+        await self.sessions.revoke_all_by_token(refresh_token)
 
         import uuid
 
@@ -112,10 +113,14 @@ class AuthService:
         return AuthResponse(tokens=tokens, user=user)  # type: ignore[arg-type]
 
     async def logout(self, *, refresh_token: str) -> None:
-        session_row = await self.sessions.get_active_by_token(refresh_token)
-        if session_row:
-            await self.sessions.revoke(session_row)
-            await self.session.commit()
+        """Revoke ALL sessions sharing this refresh token hash.
+
+        Using `revoke_all_by_token` guarantees that even if the same
+        refresh token was issued multiple times (e.g. rapid logins within
+        the same second), none of them remain valid after logout.
+        """
+        await self.sessions.revoke_all_by_token(refresh_token)
+        await self.session.commit()
 
     async def _issue_tokens(
         self,
