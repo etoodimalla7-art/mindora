@@ -8,6 +8,7 @@ from app.models.document import (
     DescriptionValidation,
 )
 from app.models.document_chunk import DocumentChunk
+from app.models.mock_exam import MockAnswer, MockExam, MockQuestion
 from app.models.plan import StudyPlan, StudySession
 from app.models.progress import TopicProgress
 from app.models.session import Session
@@ -30,4 +31,7 @@ __all__ = [
     "Download",
     "Conversation",
     "Message",
+    "MockExam",
+    "MockQuestion",
+    "MockAnswer",
 ]
