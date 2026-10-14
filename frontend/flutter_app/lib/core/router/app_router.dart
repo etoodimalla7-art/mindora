@@ -24,6 +24,10 @@ import '../../features/planner/presentation/screens/create_plan_screen.dart';
 import '../../features/planner/presentation/screens/plan_detail_screen.dart';
 import '../../features/planner/presentation/screens/planner_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
+import '../../features/subscription/presentation/screens/checkout_screen.dart';
+import '../../features/subscription/presentation/screens/manage_subscription_screen.dart';
+import '../../features/subscription/presentation/screens/payment_result_screen.dart';
+import '../../features/subscription/presentation/screens/plans_screen.dart';
 import '../../features/shell/presentation/app_shell.dart';
 import '../../features/splash/presentation/splash_screen.dart';
 import '../../features/styleguide/presentation/styleguide_screen.dart';
@@ -123,6 +127,26 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             ),
           ),
         ],
+      ),
+      GoRoute(
+        path: '/subscription/plans',
+        builder: (_, __) => const PlansScreen(),
+      ),
+      GoRoute(
+        path: '/subscription/checkout/:planCode',
+        builder: (_, state) => CheckoutScreen(
+          planCode: state.pathParameters['planCode']!,
+        ),
+      ),
+      GoRoute(
+        path: '/subscription/return/:reference',
+        builder: (_, state) => PaymentResultScreen(
+          reference: state.pathParameters['reference']!,
+        ),
+      ),
+      GoRoute(
+        path: '/subscription/manage',
+        builder: (_, __) => const ManageSubscriptionScreen(),
       ),
       ShellRoute(
         builder: (context, state, child) => AppShell(child: child),
