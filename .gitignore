@@ -70,7 +70,6 @@ desktop.ini
 secrets/
 
 # ---------- Local data ----------
-data/
 storage/uploads/
 storage/private/
 *.sqlite3
