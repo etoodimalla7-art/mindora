@@ -40,3 +40,4 @@ jobs:
           name: mindora-apk
           path: frontend/flutter_app/build/app/outputs/flutter-apk/app-release.apk
 # Build trigger: Wed Oct 14 23:06:46 UTC 2026
+# Rebuild for w3jv: Wed Oct 14 23:10:01 UTC 2026
