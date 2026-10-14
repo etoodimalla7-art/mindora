@@ -14,6 +14,10 @@ import '../../features/documents/presentation/screens/upload_file_screen.dart';
 import '../../features/documents/presentation/screens/upload_metadata_screen.dart';
 import '../../features/documents/presentation/screens/upload_progress_screen.dart';
 import '../../features/home/presentation/home_screen.dart';
+import '../../features/mock_exams/presentation/screens/create_mock_exam_screen.dart';
+import '../../features/mock_exams/presentation/screens/mock_exam_results_screen.dart';
+import '../../features/mock_exams/presentation/screens/mock_exams_list_screen.dart';
+import '../../features/mock_exams/presentation/screens/take_mock_exam_screen.dart';
 import '../../features/onboarding/presentation/onboarding_screen.dart';
 import '../../features/planner/presentation/screens/create_exam_plan_screen.dart';
 import '../../features/planner/presentation/screens/create_plan_screen.dart';
@@ -92,6 +96,34 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         ),
       ),
 
+      GoRoute(
+        path: '/mock-exams',
+        builder: (_, __) => const MockExamsListScreen(),
+        routes: [
+          GoRoute(
+            path: 'create',
+            builder: (_, __) => const CreateMockExamScreen(),
+          ),
+          GoRoute(
+            path: ':id',
+            builder: (_, state) => TakeMockExamScreen(
+              examId: state.pathParameters['id']!,
+            ),
+          ),
+          GoRoute(
+            path: ':id/take',
+            builder: (_, state) => TakeMockExamScreen(
+              examId: state.pathParameters['id']!,
+            ),
+          ),
+          GoRoute(
+            path: ':id/results',
+            builder: (_, state) => MockExamResultsScreen(
+              examId: state.pathParameters['id']!,
+            ),
+          ),
+        ],
+      ),
       ShellRoute(
         builder: (context, state, child) => AppShell(child: child),
         routes: [
