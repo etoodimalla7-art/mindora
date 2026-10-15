@@ -85,6 +85,12 @@ class Settings(BaseSettings):
     BRAVE_SEARCH_API_KEY: str = ""
     SERPAPI_API_KEY: str = ""
 
+    # ---------- Notifications ----------
+    NOTIFICATION_PROVIDER: Literal["none", "fcm"] = "fcm"
+    FCM_PROJECT_ID: str = ""
+    FCM_SERVICE_ACCOUNT_PATH: str = ""
+    FCM_LEGACY_SERVER_KEY: str = ""
+
     # ---------- Payments ----------
     PAYMENT_PROVIDER: Literal["none", "flutterwave", "stripe", "campay"] = "flutterwave"
     PAYMENT_REDIRECT_SUCCESS_URL: str = (
