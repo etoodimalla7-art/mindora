@@ -9,6 +9,11 @@ from app.models.document import (
 )
 from app.models.document_chunk import DocumentChunk
 from app.models.mock_exam import MockAnswer, MockExam, MockQuestion
+from app.models.notification import (
+    Device,
+    Notification,
+    NotificationPreference,
+)
 from app.models.plan import StudyPlan, StudySession
 from app.models.progress import TopicProgress
 from app.models.session import Session
@@ -38,4 +43,7 @@ __all__ = [
     "Plan",
     "Subscription",
     "Payment",
+    "Device",
+    "Notification",
+    "NotificationPreference",
 ]

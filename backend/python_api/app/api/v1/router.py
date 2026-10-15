@@ -12,6 +12,7 @@ from app.api.v1 import (
     documents,
     health,
     mock_exams,
+    notifications,
     planner,
     subscriptions,
     users,
@@ -33,5 +34,8 @@ api_router.include_router(
 )
 api_router.include_router(
     subscriptions.router, prefix="/subscriptions", tags=["subscriptions"]
+)
+api_router.include_router(
+    notifications.router, prefix="/notifications", tags=["notifications"]
 )
 api_router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])

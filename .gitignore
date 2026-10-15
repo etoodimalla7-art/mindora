@@ -85,3 +85,4 @@ reports/
 .env.render
 firebase-service-account.json
 frontend/flutter_app/android/app/google-services.json
+.gradle/
