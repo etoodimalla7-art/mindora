@@ -4,12 +4,9 @@ Each rule is a pure function that takes the current time + user context and
 returns a NotificationIntent (to be rendered + sent) or None (no-op).
 
 Rules are intentionally free of I/O: they receive everything they need via
-arguments. This makes them:
-- deterministic (testable with a fixed `now`)
-- composable (the engine in 12B.3 calls them all)
-- side-effect free (no DB access, no HTTP, no logging beyond debug)
+arguments. This makes them deterministic, composable, and easily testable.
 
-The engine is responsible for:
+The engine (see engine.py) is responsible for:
 - dedup lookup (via `dedup_key`)
 - template rendering
 - persistence + provider dispatch
@@ -17,9 +14,18 @@ The engine is responsible for:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import inspect
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Iterable
+
+from app.models.notification import (
+    NOTIF_TYPE_EXAM_COUNTDOWN,
+    NOTIF_TYPE_INACTIVITY,
+    NOTIF_TYPE_SESSION_REMINDER,
+    NOTIF_TYPE_STREAK,
+    NOTIF_TYPE_SUBSCRIPTION_EXPIRING,
+)
 
 # ---------------------------------------------------------------------------
 # Intent model
@@ -28,16 +34,7 @@ from typing import Any, Callable, Iterable
 
 @dataclass(frozen=True)
 class NotificationIntent:
-    """A rule's decision to notify a user.
-
-    Attributes:
-        template_key: Key in TEMPLATES (rendered later by engine).
-        context: Variables to interpolate (user_name, subject_name, ...).
-        priority: 1 = highest, 5 = lowest. Used for anti-spam ordering.
-        dedup_key: Unique key per "logical notification". If a Notification
-            row already exists with this dedup_key for this user, skip.
-        user_id: UUID of the target user (as str).
-    """
+    """A rule's decision to notify a user."""
 
     template_key: str
     context: dict[str, Any]
@@ -47,12 +44,12 @@ class NotificationIntent:
 
 
 # ---------------------------------------------------------------------------
-# Helper: extract a friendly first name for templates
+# Helpers
 # ---------------------------------------------------------------------------
 
 
 def _first_name(user: Any) -> str:
-    """Best-effort first name. Falls back to 'ami(e)' / 'friend'."""
+    """Best-effort first name. Falls back to 'ami(e)'."""
     full = getattr(user, "full_name", None) or getattr(user, "name", None)
     if not full:
         return "ami(e)"
@@ -67,11 +64,11 @@ def _as_utc(dt: datetime) -> datetime:
 
 
 # ---------------------------------------------------------------------------
-# RULE 1 — study_reminder
+# RULE 1 — session_reminder
 # ---------------------------------------------------------------------------
 
 
-def rule_study_reminder(
+def rule_session_reminder(
     *,
     now: datetime,
     user: Any,
@@ -80,14 +77,12 @@ def rule_study_reminder(
 ) -> NotificationIntent | None:
     """Fire if a session starts within the next `window_minutes` (default 15).
 
-    `upcoming_sessions` must be an iterable of objects with:
-      - id (UUID-like)
-      - subject_name (str)  OR  subject.name
-      - scheduled_at (datetime, tz-aware or naive)
+    `upcoming_sessions` items must have: id, subject_name (or subject.name),
+    scheduled_at (datetime).
     """
     now = _as_utc(now)
     window_end = now + timedelta(minutes=window_minutes)
-    best: tuple[Any, int] | None = None  # (session, minutes_left)
+    best: tuple[Any, int] | None = None
 
     for s in upcoming_sessions:
         sched = _as_utc(getattr(s, "scheduled_at"))
@@ -108,24 +103,24 @@ def rule_study_reminder(
     sid = str(getattr(session, "id", "unknown"))
 
     return NotificationIntent(
-        template_key="study_reminder",
+        template_key=NOTIF_TYPE_SESSION_REMINDER,
         context={
             "user_name": _first_name(user),
             "subject_name": subject_name,
             "minutes": minutes_left,
         },
         priority=1,
-        dedup_key=f"study_reminder:{sid}",
+        dedup_key=f"session_reminder:{sid}",
         user_id=str(getattr(user, "id", "")),
     )
 
 
 # ---------------------------------------------------------------------------
-# RULE 2 — streak_alert
+# RULE 2 — streak
 # ---------------------------------------------------------------------------
 
 
-def rule_streak_alert(
+def rule_streak(
     *,
     now: datetime,
     user: Any,
@@ -134,7 +129,7 @@ def rule_streak_alert(
     threshold_hour_local: int = 20,
     local_offset_hours: int = 1,  # Cameroon = UTC+1
 ) -> NotificationIntent | None:
-    """Fire if it's past 20h local, user has a streak, but no session today."""
+    """Fire if past 20h local, user has a streak, but no session today."""
     if streak_days <= 0:
         return None
     if sessions_completed_today > 0:
@@ -145,17 +140,16 @@ def rule_streak_alert(
     if local_now.hour < threshold_hour_local:
         return None
 
-    # Dedup once per calendar day (local)
     day_key = local_now.strftime("%Y-%m-%d")
 
     return NotificationIntent(
-        template_key="streak_alert",
+        template_key=NOTIF_TYPE_STREAK,
         context={
             "user_name": _first_name(user),
             "streak_days": streak_days,
         },
         priority=2,
-        dedup_key=f"streak_alert:{day_key}",
+        dedup_key=f"streak:{day_key}",
         user_id=str(getattr(user, "id", "")),
     )
 
@@ -174,10 +168,7 @@ def rule_exam_countdown(
     user: Any,
     exam: Any,
 ) -> NotificationIntent | None:
-    """Fire at J-7, J-3, J-1 before an exam.
-
-    `exam` must have: id, name (or title), exam_date (datetime), subject_name
-    """
+    """Fire at J-7, J-3, J-1 before an exam."""
     if exam is None:
         return None
 
@@ -197,7 +188,7 @@ def rule_exam_countdown(
     )
 
     return NotificationIntent(
-        template_key="exam_countdown",
+        template_key=NOTIF_TYPE_EXAM_COUNTDOWN,
         context={
             "user_name": _first_name(user),
             "days_left": days_left,
@@ -210,11 +201,11 @@ def rule_exam_countdown(
 
 
 # ---------------------------------------------------------------------------
-# RULE 4 — plan_nudge
+# RULE 4 — inactivity (plan nudge)
 # ---------------------------------------------------------------------------
 
 
-def rule_plan_nudge(
+def rule_inactivity(
     *,
     now: datetime,
     user: Any,
@@ -228,7 +219,6 @@ def rule_plan_nudge(
     if getattr(plan, "status", "active") != "active":
         return None
     if last_activity_at is None:
-        # Never started: give a nudge after creation + inactivity_days
         created = getattr(plan, "created_at", None)
         if created is None:
             return None
@@ -241,17 +231,16 @@ def rule_plan_nudge(
 
     plan_id = str(getattr(plan, "id", "unknown"))
     plan_name = getattr(plan, "name", None) or getattr(plan, "title", None) or "Plan"
-    # Dedup once per ISO week per plan
     year, week, _ = now.isocalendar()
 
     return NotificationIntent(
-        template_key="plan_nudge",
+        template_key=NOTIF_TYPE_INACTIVITY,
         context={
             "user_name": _first_name(user),
             "plan_name": plan_name,
         },
         priority=3,
-        dedup_key=f"plan_nudge:{plan_id}:{year}-W{week}",
+        dedup_key=f"inactivity:{plan_id}:{year}-W{week}",
         user_id=str(getattr(user, "id", "")),
     )
 
@@ -292,7 +281,7 @@ def rule_subscription_expiring(
     sub_id = str(getattr(subscription, "id", "unknown"))
 
     return NotificationIntent(
-        template_key="subscription_expiring",
+        template_key=NOTIF_TYPE_SUBSCRIPTION_EXPIRING,
         context={
             "user_name": _first_name(user),
             "days_until_expiry": days_left,
@@ -310,39 +299,31 @@ def rule_subscription_expiring(
 
 RuleFn = Callable[..., NotificationIntent | None]
 
-# Rules are exposed as a tuple so the engine can iterate in a stable order
-# (also useful for admin listing & tests).
 ALL_RULES: tuple[RuleFn, ...] = (
-    rule_study_reminder,
-    rule_streak_alert,
+    rule_session_reminder,
+    rule_streak,
     rule_exam_countdown,
-    rule_plan_nudge,
+    rule_inactivity,
     rule_subscription_expiring,
 )
 
+# Backwards-compat alias (old name)
+rule_study_reminder = rule_session_reminder
+rule_streak_alert = rule_streak
+rule_plan_nudge = rule_inactivity
+
 
 def evaluate_rules(rules: Iterable[RuleFn], **kwargs: Any) -> list[NotificationIntent]:
-    """Run every rule with the given kwargs, return non-None intents.
-
-    Note: rules accept keyword-only args (see signatures above). Passing a
-    superset of kwargs is fine — each rule ignores what it doesn't need,
-    *provided* the rule accepts `**kwargs`. Since our rules do NOT take
-    `**kwargs`, the caller must pass only the kwargs a rule needs.
-
-    Instead, we filter by inspecting the rule's signature.
-    """
-    import inspect
-
+    """Run every rule with only the kwargs it accepts. Return non-None intents."""
     results: list[NotificationIntent] = []
     for rule in rules:
         sig = inspect.signature(rule)
         accepted = {name for name in sig.parameters if name not in ("self", "cls")}
-        # Note: all our rules use keyword-only args (after *), so we filter.
         applicable = {k: v for k, v in kwargs.items() if k in accepted}
         try:
             intent = rule(**applicable)
         except TypeError:
-            # Missing required kwarg for this rule → skip silently.
+            # Missing required kwarg → skip this rule silently.
             continue
         if intent is not None:
             results.append(intent)

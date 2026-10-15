@@ -1,16 +1,14 @@
 """Notification templates with FR/EN support and variable interpolation.
 
-Templates use Jinja-like placeholders: {{user_name}}, {{days_left}}, etc.
-Missing variables are replaced with [var] (and logged) — never crash.
+Template keys align with the NOTIF_TYPE_* constants in
+app.models.notification.
 
 Usage:
-    content = render("study_reminder", "fr", {
+    content = render("session_reminder", "fr", {
         "user_name": "Alice",
         "subject_name": "Mathématiques",
         "minutes": 15,
     })
-    # content.title == "📚 C'est l'heure, Alice !"
-    # content.body  == "Ta session Mathématiques commence dans 15 min."
 """
 
 from __future__ import annotations
@@ -24,35 +22,24 @@ logger = logging.getLogger(__name__)
 
 Locale = Literal["fr", "en"]
 DEFAULT_LOCALE: Locale = "fr"
-
 SUPPORTED_LOCALES: tuple[Locale, ...] = ("fr", "en")
 
 
 @dataclass(frozen=True)
 class NotificationContent:
-    """Rendered notification payload (title + body)."""
+    """Rendered notification payload."""
 
     title: str
     body: str
 
 
 # ---------------------------------------------------------------------------
-# Templates registry
-# ---------------------------------------------------------------------------
-# Placeholders available across templates:
-#   {{user_name}}          — user's first name (fallback "ami(e)"/"friend")
-#   {{subject_name}}       — subject / course name
-#   {{minutes}}            — minutes until event (int)
-#   {{days_left}}          — days until exam (int)
-#   {{streak_days}}        — current streak count (int)
-#   {{plan_name}}          — study plan name
-#   {{document_title}}     — uploaded document title
-#   {{days_until_expiry}}  — days until subscription expires (int)
+# Templates registry — keys MUST match NOTIF_TYPE_* in models/notification.py
 # ---------------------------------------------------------------------------
 
 TEMPLATES: dict[str, dict[Locale, dict[str, str]]] = {
-    # --- Study reminder (avant une session planifiée) ----------------------
-    "study_reminder": {
+    # --- session_reminder (NOTIF_TYPE_SESSION_REMINDER) --------------------
+    "session_reminder": {
         "fr": {
             "title": "📚 C'est l'heure, {{user_name}} !",
             "body": "Ta session {{subject_name}} commence dans {{minutes}} min.",
@@ -62,8 +49,8 @@ TEMPLATES: dict[str, dict[Locale, dict[str, str]]] = {
             "body": "Your {{subject_name}} session starts in {{minutes}} min.",
         },
     },
-    # --- Streak alert (risque de perdre la série) ---------------------------
-    "streak_alert": {
+    # --- streak (NOTIF_TYPE_STREAK) ----------------------------------------
+    "streak": {
         "fr": {
             "title": "🔥 Ne casse pas ta série de {{streak_days}} jours !",
             "body": "Une petite session de 10 min suffit pour garder ta série. On y va ?",
@@ -73,7 +60,7 @@ TEMPLATES: dict[str, dict[Locale, dict[str, str]]] = {
             "body": "A quick 10-min session keeps your streak alive. Let's go?",
         },
     },
-    # --- Exam countdown (J-X avant examen) ----------------------------------
+    # --- exam_countdown (NOTIF_TYPE_EXAM_COUNTDOWN) ------------------------
     "exam_countdown": {
         "fr": {
             "title": "⏳ Plus que {{days_left}} jours avant ton examen",
@@ -84,8 +71,8 @@ TEMPLATES: dict[str, dict[Locale, dict[str, str]]] = {
             "body": "Focus on {{subject_name}}. MINDORA can generate a mock exam to assess you.",
         },
     },
-    # --- Plan nudge (plan inactif depuis > 3 jours) -------------------------
-    "plan_nudge": {
+    # --- inactivity (NOTIF_TYPE_INACTIVITY) --------------------------------
+    "inactivity": {
         "fr": {
             "title": "👋 On reprend, {{user_name}} ?",
             "body": "Ton plan '{{plan_name}}' t'attend. 15 minutes aujourd'hui et tu gardes le rythme.",
@@ -95,7 +82,7 @@ TEMPLATES: dict[str, dict[Locale, dict[str, str]]] = {
             "body": "Your plan '{{plan_name}}' is waiting. 15 minutes today keeps the rhythm.",
         },
     },
-    # --- Session completed (félicitations) ----------------------------------
+    # --- session_completed (NOTIF_TYPE_SESSION_COMPLETED) ------------------
     "session_completed": {
         "fr": {
             "title": "✅ Session terminée, bravo !",
@@ -106,7 +93,7 @@ TEMPLATES: dict[str, dict[Locale, dict[str, str]]] = {
             "body": "You just finished {{subject_name}}. Current streak: {{streak_days}} days 🔥",
         },
     },
-    # --- Document ready (upload traité par RAG) -----------------------------
+    # --- document_ready (NOTIF_TYPE_DOCUMENT_READY) ------------------------
     "document_ready": {
         "fr": {
             "title": "📄 Ton document est prêt",
@@ -117,7 +104,7 @@ TEMPLATES: dict[str, dict[Locale, dict[str, str]]] = {
             "body": "'{{document_title}}' has been processed. Ask the AI tutor anything now!",
         },
     },
-    # --- Subscription expiring (abonnement bientôt expiré) ------------------
+    # --- subscription_expiring (NOTIF_TYPE_SUBSCRIPTION_EXPIRING) ----------
     "subscription_expiring": {
         "fr": {
             "title": "💳 Ton abonnement expire dans {{days_until_expiry}} jours",
@@ -128,9 +115,31 @@ TEMPLATES: dict[str, dict[Locale, dict[str, str]]] = {
             "body": "Renew now to keep unlimited access to the AI tutor and mock exams.",
         },
     },
+    # --- milestone (NOTIF_TYPE_MILESTONE) — generic fallback ---------------
+    "milestone": {
+        "fr": {
+            "title": "🏆 {{milestone_title}}",
+            "body": "{{milestone_body}}",
+        },
+        "en": {
+            "title": "🏆 {{milestone_title}}",
+            "body": "{{milestone_body}}",
+        },
+    },
+    # --- system (NOTIF_TYPE_SYSTEM) — generic fallback ---------------------
+    "system": {
+        "fr": {
+            "title": "{{title}}",
+            "body": "{{body}}",
+        },
+        "en": {
+            "title": "{{title}}",
+            "body": "{{body}}",
+        },
+    },
 }
 
-# Regex to detect {{ var_name }} placeholders
+
 _VAR_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}")
 
 
@@ -166,9 +175,9 @@ def render(
     """Render a notification template.
 
     Args:
-        template_key: Key in TEMPLATES (e.g. "study_reminder").
+        template_key: Key in TEMPLATES (e.g. "session_reminder").
         locale: "fr" or "en". Unknown locales fall back to DEFAULT_LOCALE.
-        context: Variables to interpolate (user_name, subject_name, ...).
+        context: Variables to interpolate.
 
     Returns:
         NotificationContent with interpolated title and body.
@@ -183,7 +192,6 @@ def render(
     loc = _normalize_locale(locale)
 
     variants = TEMPLATES[template_key]
-    # Fallback to DEFAULT_LOCALE if the requested locale is not present
     tpl = variants.get(loc) or variants[DEFAULT_LOCALE]
 
     return NotificationContent(
@@ -193,7 +201,7 @@ def render(
 
 
 def list_templates() -> list[str]:
-    """Return all registered template keys (useful for admin / tests)."""
+    """Return all registered template keys."""
     return sorted(TEMPLATES.keys())
 
 
