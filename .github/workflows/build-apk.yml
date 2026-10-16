@@ -25,6 +25,14 @@ jobs:
         working-directory: frontend/flutter_app
         run: flutter pub get
 
+      - name: Decode google-services.json
+        run: |
+          echo "$GOOGLE_SERVICES_JSON" | base64 -d > android/app/google-services.json
+          ls -la android/app/google-services.json
+        working-directory: frontend/flutter_app
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+
       - name: Build APK
         working-directory: frontend/flutter_app
         run: |
