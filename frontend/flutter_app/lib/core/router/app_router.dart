@@ -30,6 +30,7 @@ import '../../features/subscription/presentation/screens/plans_screen.dart';
 import '../../features/shell/presentation/app_shell.dart';
 import '../../features/splash/presentation/splash_screen.dart';
 import '../../features/styleguide/presentation/styleguide_screen.dart';
+import '../../features/debug/presentation/push_debug_screen.dart';
 import 'routes.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
@@ -56,6 +57,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.styleguide,
         name: 'styleguide',
         builder: (_, __) => const StyleguideScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.debugPush,
+        name: 'debugPush',
+        builder: (_, __) => const PushDebugScreen(),
       ),
 
       // Documents

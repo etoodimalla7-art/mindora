@@ -16,4 +16,7 @@ class AppRoutes {
   static const String plannerCreateSubject = '/planner/create/subject';
 
   static const String styleguide = '/styleguide';
+
+  // Debug
+  static const String debugPush = '/debug/push';
 }
