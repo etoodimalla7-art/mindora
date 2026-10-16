@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
 from app.middleware.request_id import RequestIDMiddleware
+from app.services.notification.scheduler import start_scheduler, stop_scheduler
 
 logger = get_logger(__name__)
 
@@ -24,7 +25,21 @@ async def lifespan(_: FastAPI):
         env=settings.APP_ENV,
         version=settings.APP_VERSION,
     )
+
+    # Start notification scheduler (APScheduler, in-process)
+    try:
+        start_scheduler()
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Scheduler start failed: %s", exc)
+
     yield
+
+    # Stop scheduler gracefully
+    try:
+        stop_scheduler()
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Scheduler stop failed: %s", exc)
+
     logger.info("app_stopping")
 
 

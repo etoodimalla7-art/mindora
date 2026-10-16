@@ -14,11 +14,13 @@ import asyncio
 import gc
 import warnings
 from collections.abc import AsyncGenerator
+from uuid import uuid4
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy import delete
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 # ----------------------------------------------------------------------
@@ -39,10 +41,12 @@ _session_module.engine = _test_engine
 _session_module.AsyncSessionLocal.configure(bind=_test_engine)
 
 from app.main import create_app  # noqa: E402
+from app.models.notification import Device  # noqa: E402
+from app.models.user import User  # noqa: E402
 
 
 # ----------------------------------------------------------------------
-# Fixtures
+# Fixtures — app & HTTP client
 # ----------------------------------------------------------------------
 @pytest.fixture(scope="session")
 def app():
@@ -57,6 +61,61 @@ async def client(app) -> AsyncGenerator[AsyncClient, None]:
 
 
 # ----------------------------------------------------------------------
+# Fixtures — DB session & user/device builders (global)
+# ----------------------------------------------------------------------
+@pytest_asyncio.fixture
+async def db_session() -> AsyncGenerator[AsyncSession, None]:
+    """Real async DB session, rolled back at the end.
+
+    Note: we commit inside tests, so rollback is best-effort; explicit
+    cleanup is the responsibility of each test (or use `test_user`).
+    """
+    async with _session_module.AsyncSessionLocal() as session:
+        yield session
+        await session.rollback()
+
+
+@pytest_asyncio.fixture
+async def test_user(db_session: AsyncSession) -> AsyncGenerator[User, None]:
+    """Create a throwaway user; delete it (cascades) after the test."""
+    email = f"test-{uuid4().hex[:8]}@mindora.dev"
+    user = User(
+        email=email,
+        hashed_password="not-used",
+        full_name="Test User",
+        is_admin=False,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    yield user
+
+    try:
+        await db_session.execute(delete(User).where(User.id == user.id))
+        await db_session.commit()
+    except Exception:
+        await db_session.rollback()
+
+
+@pytest_asyncio.fixture
+async def test_device(
+    db_session: AsyncSession, test_user: User
+) -> Device:
+    """Create a device attached to `test_user`."""
+    device = Device(
+        user_id=test_user.id,
+        fcm_token=f"token-{uuid4().hex[:16]}",
+        platform="android",
+        notifications_enabled=True,
+    )
+    db_session.add(device)
+    await db_session.commit()
+    await db_session.refresh(device)
+    return device
+
+
+# ----------------------------------------------------------------------
 # Teardown: dispose the engine while the loop is still alive
 # ----------------------------------------------------------------------
 @pytest_asyncio.fixture(scope="session", autouse=True)
@@ -67,7 +126,6 @@ async def _dispose_engine_at_end():
         await _test_engine.dispose()
     except Exception:
         pass
-    # Give asyncpg a tick to finish its close handshake.
     await asyncio.sleep(0)
     gc.collect()
 
