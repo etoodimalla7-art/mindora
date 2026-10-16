@@ -11,8 +11,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 import pytest
-import pytest_asyncio
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import AsyncSessionLocal
@@ -31,7 +30,6 @@ from app.models.notification import (
     Notification,
     NotificationPreference,
 )
-from app.models.user import User
 from app.services.notification.engine import NotificationEngine
 from app.services.notification.rules import NotificationIntent
 
@@ -60,51 +58,7 @@ class StubProvider:
         return [await self.send(m) for m in messages]
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
-@pytest_asyncio.fixture
-async def db_session() -> AsyncSession:
-    """Real async DB session, cleaned up after the test."""
-    async with AsyncSessionLocal() as session:
-        yield session
-        await session.rollback()
-
-
-@pytest_asyncio.fixture
-async def test_user(db_session: AsyncSession) -> User:
-    """Create a throwaway user, delete after test."""
-    email = f"test-{uuid4().hex[:8]}@mindora.dev"
-    user = User(
-        email=email,
-        hashed_password="not-used",
-        full_name="Test User",
-        is_admin=False,
-    )
-    # Some models require extra fields — adapt to your User model
-    db_session.add(user)
-    await db_session.commit()
-    await db_session.refresh(user)
-    yield user
-    # cleanup: cascades through FK on user_id
-    await db_session.execute(delete(User).where(User.id == user.id))
-    await db_session.commit()
-
-
-@pytest_asyncio.fixture
-async def test_device(db_session: AsyncSession, test_user: User) -> Device:
-    device = Device(
-        user_id=test_user.id,
-        fcm_token=f"token-{uuid4().hex[:16]}",
-        platform="android",
-        notifications_enabled=True,
-    )
-    db_session.add(device)
-    await db_session.commit()
-    await db_session.refresh(device)
-    return device
+# Fixtures (db_session, test_user, test_device) are defined in tests/conftest.py
 
 
 def make_intent(user_id: UUID, template_key: str = "session_reminder") -> NotificationIntent:

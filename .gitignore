@@ -86,3 +86,7 @@ reports/
 firebase-service-account.json
 frontend/flutter_app/android/app/google-services.json
 .gradle/
+/dart_tool/
+/build/
+/pubspec.lock
+/analysis_options.yaml
