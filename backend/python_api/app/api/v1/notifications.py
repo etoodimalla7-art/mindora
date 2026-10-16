@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Response, status
 from sqlalchemy import select
 
-from app.api.deps import CurrentUserId, SessionDep
+from app.api.deps import AdminUser, CurrentUserId, SessionDep
 from app.core.errors import NotFoundError
 from app.integrations.notifications.factory import get_notification_provider
 from app.integrations.notifications.provider import PushMessage
@@ -25,6 +25,9 @@ from app.schemas.notification import (
     NotificationPreferenceOut,
     NotificationPreferenceUpdate,
     TestNotificationRequest,
+    JobInfoOut,
+    SchedulerHealthOut,
+    TriggerJobOut,
 )
 
 router = APIRouter()
@@ -229,3 +232,83 @@ async def update_preferences(
     await session.commit()
     await session.refresh(prefs)
     return NotificationPreferenceOut.model_validate(prefs)
+
+
+# ---------------------------------------------------------------------------
+# Admin — scheduler monitoring + manual trigger (12B.6)
+# ---------------------------------------------------------------------------
+from app.services.notification.scheduler import get_scheduler  # noqa: E402
+
+
+@router.get("/admin/health", response_model=SchedulerHealthOut)
+async def admin_scheduler_health(
+    _admin: AdminUser,
+) -> SchedulerHealthOut:
+    """Return scheduler status + list of registered jobs."""
+    sched = get_scheduler()
+    provider = get_notification_provider()
+
+    if sched is None:
+        return SchedulerHealthOut(
+            running=False,
+            job_count=0,
+            provider=getattr(provider, "name", "unknown"),
+            jobs=[],
+        )
+
+    jobs: list[JobInfoOut] = []
+    for j in sched.get_jobs():
+        nrt = getattr(j, "next_run_time", None)
+        jobs.append(
+            JobInfoOut(
+                id=j.id,
+                name=j.name or j.id,
+                trigger=str(j.trigger),
+                next_run_time=nrt.isoformat() if nrt else None,
+            )
+        )
+
+    return SchedulerHealthOut(
+        running=sched.running,
+        job_count=len(jobs),
+        provider=getattr(provider, "name", "unknown"),
+        jobs=jobs,
+    )
+
+
+@router.post("/admin/trigger-job/{job_id}", response_model=TriggerJobOut)
+async def admin_trigger_job(
+    job_id: str,
+    session: SessionDep,
+    _admin: AdminUser,
+) -> TriggerJobOut:
+    """Manually trigger a notification job (admin debug)."""
+    from app.services.notification import jobs as jobs_module
+
+    job_map = {
+        "notif_scan_upcoming_sessions": jobs_module.job_scan_upcoming_sessions,
+        "notif_scan_exam_countdown": jobs_module.job_scan_exam_countdown,
+        "notif_scan_streaks": jobs_module.job_scan_streaks,
+        "notif_scan_inactivity": jobs_module.job_scan_inactivity,
+        "notif_scan_subscriptions": jobs_module.job_scan_subscriptions,
+    }
+
+    job_fn = job_map.get(job_id)
+    if job_fn is None:
+        raise NotFoundError(
+            f"Unknown job: {job_id}. "
+            f"Available: {sorted(job_map.keys())}"
+        )
+
+    try:
+        processed = await job_fn(session)
+        await session.commit()
+    except Exception as exc:  # noqa: BLE001
+        await session.rollback()
+        raise
+
+    return TriggerJobOut(
+        job_id=job_id,
+        processed=processed,
+        message=f"Job {job_id} processed {processed} user(s).",
+    )

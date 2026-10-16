@@ -80,3 +80,35 @@ class TestNotificationRequest(BaseModel):
 
     title: str = Field(default="Test notification", max_length=200)
     body: str = Field(default="This is a test from MINDORA.", max_length=500)
+
+
+# ---------------------------------------------------------------------------
+# Admin — scheduler monitoring (12B.6)
+# ---------------------------------------------------------------------------
+from pydantic import BaseModel, Field  # noqa: E402
+
+
+class JobInfoOut(BaseModel):
+    """Information about a scheduled notification job."""
+
+    id: str
+    name: str
+    trigger: str
+    next_run_time: str | None = None
+
+
+class TriggerJobOut(BaseModel):
+    """Result of a manual job trigger."""
+
+    job_id: str
+    processed: int = Field(description="Number of users processed")
+    message: str
+
+
+class SchedulerHealthOut(BaseModel):
+    """Scheduler status summary."""
+
+    running: bool
+    job_count: int
+    provider: str
+    jobs: list[JobInfoOut]
