@@ -1,31 +1,41 @@
 import 'package:flutter/foundation.dart';
 
+/// Centralized environment configuration.
+///
+/// URL resolution order:
+///   1. `--dart-define=API_BASE_URL=...` at build time (CI / production).
+///   2. On web: derive from the current page origin.
+///   3. Fallback: localhost (dev / emulator only).
 class Env {
   Env._();
 
-  /// Base URL of the MINDORA backend API.
-  ///
-  /// Resolution order:
-  ///   1. Dart-define `API_BASE_URL` (production / CI override).
-  ///   2. On web: derive from the current page origin.
-  ///   3. On Android: use the Codespaces public URL (set at build time).
-  ///   4. Fallback: localhost (desktop / emulator).
-  static String get apiBaseUrl {
-    const override = String.fromEnvironment('API_BASE_URL', defaultValue: '');
-    if (override.isNotEmpty) return override;
+  /// Compile-time override. Must be a class-level `const` so that
+  /// `--dart-define` is honored at build time.
+  static const String _apiBaseUrlOverride =
+      String.fromEnvironment('API_BASE_URL', defaultValue: '');
 
+  static const String _appEnv =
+      String.fromEnvironment('APP_ENV', defaultValue: 'development');
+
+  static bool get isProduction => _appEnv == 'production';
+
+  static String get apiBaseUrl {
+    // 1. Explicit override from --dart-define
+    if (_apiBaseUrlOverride.isNotEmpty) {
+      return _apiBaseUrlOverride;
+    }
+
+    // 2. Web: derive from origin
     if (kIsWeb) {
       try {
         final origin = Uri.base.origin;
         return '${_codespacesRewrite(origin)}/api/v1';
       } catch (_) {
-        // Fall through.
+        // fall through
       }
     }
 
-    // Android / Desktop default: point to the Codespaces public backend.
-    // Override this at build time with:
-    //   flutter build apk --dart-define=API_BASE_URL=https://xxx-8000.app.github.dev/api/v1
+    // 3. Dev fallback (desktop / emulator)
     return 'http://localhost:8000/api/v1';
   }
 
