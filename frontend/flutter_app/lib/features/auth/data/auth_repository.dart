@@ -1,6 +1,8 @@
 import 'package:dio/dio.dart';
 
 import '../../../core/network/token_store.dart';
+import '../../notifications/data/device_repository.dart';
+import '../../notifications/data/notification_api.dart';
 import '../domain/auth_models.dart';
 
 class AuthRepository {
@@ -27,6 +29,7 @@ class AuthRepository {
       access: session.tokens.accessToken,
       refresh: session.tokens.refreshToken,
     );
+    await _registerDeviceBestEffort();
     return session;
   }
 
@@ -40,6 +43,7 @@ class AuthRepository {
       access: session.tokens.accessToken,
       refresh: session.tokens.refreshToken,
     );
+    await _registerDeviceBestEffort();
     return session;
   }
 
@@ -61,6 +65,18 @@ class AuthRepository {
       return AuthUser.fromJson(r.data as Map<String, dynamic>);
     } catch (_) {
       return null;
+    }
+  }
+
+  /// Best-effort: register the device's FCM token after auth.
+  /// Never throws — if the network fails, the user is not blocked.
+  Future<void> _registerDeviceBestEffort() async {
+    try {
+      final api = NotificationApi(_dio);
+      final repo = DeviceRepository(api);
+      await repo.registerCurrentDevice();
+    } catch (_) {
+      // swallow — best-effort only
     }
   }
 }

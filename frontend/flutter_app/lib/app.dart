@@ -6,6 +6,7 @@ import 'package:responsive_framework/responsive_framework.dart';
 import 'core/config/app_config.dart';
 import 'core/design/theme/app_theme.dart';
 import 'core/locale/locale_provider.dart';
+import 'core/notifications/push_listener.dart';
 import 'core/router/app_router.dart';
 import 'l10n/app_strings.dart';
 
@@ -40,13 +41,15 @@ class MindoraApp extends ConsumerWidget {
         );
         return MediaQuery(
           data: media.copyWith(textScaler: clamped),
-          child: ResponsiveBreakpoints.builder(
+          child: PushListener(
+            child: ResponsiveBreakpoints.builder(
             child: child ?? const SizedBox.shrink(),
             breakpoints: const [
               Breakpoint(start: 0, end: 600, name: MOBILE),
               Breakpoint(start: 601, end: 1024, name: TABLET),
               Breakpoint(start: 1025, end: double.infinity, name: DESKTOP),
             ],
+          ),
           ),
         );
       },
