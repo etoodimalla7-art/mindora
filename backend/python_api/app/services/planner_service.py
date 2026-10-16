@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.errors import NotFoundError, ValidationError
 from app.models.plan import StudyPlan, StudySession
 from app.repositories.plan_repo import PlanRepository
+from app.services.notification.hooks import on_session_completed
 from app.schemas.planner import (
     ExamPlanCreate,
     SessionCompleteRequest,
@@ -164,6 +165,16 @@ class PlannerService:
         if not s:
             raise NotFoundError("Session not found.")
         await self.repo.set_session_completed(s, payload.confidence_after, payload.notes)
+
+        # Realtime notification hook (non-blocking, swallows errors)
+        try:
+            from app.models.user import User
+
+            user = await self.session.get(User, user_id)
+            if user is not None:
+                await on_session_completed(self.session, user=user, session=s)
+        except Exception:
+            pass  # non-blocking
         await self.session.commit()
         return StudySessionOut.model_validate(s)
 

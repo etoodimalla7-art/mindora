@@ -41,6 +41,7 @@ from app.services.document_dedup import (
 )
 from app.services.document_extraction import extract_text
 from app.services.description_validator import validate_description
+from app.services.notification.hooks import on_document_ready
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +232,29 @@ class DocumentService:
 
         await self.repo.commit()
         refreshed = await self.repo.get(doc_id, owner_id)
+
+        # Realtime hook — notify owner if document is ready
+        if refreshed is not None and refreshed.status in (
+            DOC_STATUS_UNDER_REVIEW,
+            DOC_STATUS_APPROVED,
+        ):
+            try:
+                from sqlalchemy import select
+
+                from app.models.user import User
+
+                user = (
+                    await self.session.execute(
+                        select(User).where(User.id == owner_id)
+                    )
+                ).scalar_one_or_none()
+                if user is not None:
+                    await on_document_ready(
+                        self.session, user=user, document=refreshed
+                    )
+            except Exception:
+                pass  # non-blocking
+
         return self._to_detail(refreshed)
 
     # ---------- Read ----------

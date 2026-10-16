@@ -28,6 +28,7 @@ from app.schemas.mock_exam import (
     SubmitAnswerRequest,
 )
 from ai.generators.question_generator import generate_questions
+from app.services.notification.hooks import on_mock_exam_generated
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,20 @@ class MockExamService:
 
         await self.session.commit()
         await self.session.refresh(exam)
+
+        # Realtime hook: notify user their mock exam is ready
+        try:
+            from app.models.user import User
+            from sqlalchemy import select
+            user = (
+                await self.session.execute(
+                    select(User).where(User.id == user_id)
+                )
+            ).scalar_one_or_none()
+            if user is not None:
+                await on_mock_exam_generated(self.session, user=user, mock_exam=exam)
+        except Exception:
+            pass  # non-blocking
 
         # Reload with questions eagerly (refresh doesn't populate relationships).
         return await self.get(user_id, exam.id)
