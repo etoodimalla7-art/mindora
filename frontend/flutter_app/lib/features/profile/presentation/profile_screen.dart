@@ -1,6 +1,6 @@
+import 'package:go_router/go_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../core/design/tokens/app_spacing.dart';
 import '../../../core/design/widgets/widgets.dart';
@@ -204,6 +204,26 @@ class ProfileScreen extends ConsumerWidget {
               ),
             ),
             const SizedBox(height: AppSpacing.xl),
+
+            // ===== DEBUG: Push diagnostic (à retirer en prod) =====
+            Card(
+              elevation: 0,
+              color: Colors.orange.withValues(alpha: 0.08),
+              child: ListTile(
+                leading: const Icon(
+                  Icons.bug_report,
+                  color: Colors.orange,
+                ),
+                title: const Text('🐛 Push Debug'),
+                subtitle: const Text(
+                  'Diagnostiquer les notifications',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push('/debug/push'),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            // ===== END DEBUG =====
 
             AppButton(
               label: 'Sign out',
