@@ -64,10 +64,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               const Center(child: BrandLogo(size: 80)),
               const SizedBox(height: AppSpacing.xl),
 
-              // MINDORA logo
-              const Center(child: BrandLogo(size: 80)),
-              const SizedBox(height: AppSpacing.xl),
-
               Text('Welcome back', style: theme.textTheme.headlineMedium),
               const SizedBox(height: AppSpacing.xs),
               Text(

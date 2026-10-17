@@ -7,6 +7,7 @@ import '../../auth/presentation/auth_controller.dart';
 import '../data/dashboard_providers.dart';
 import '../domain/dashboard_models.dart';
 import 'widgets/dashboard_cards.dart';
+import '../../../core/design/widgets/mindora_app_bar.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -29,6 +30,7 @@ class HomeScreen extends ConsumerWidget {
         'student';
 
     return Scaffold(
+      appBar: const MindoraAppBar(showWordmark: true),
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: () async {

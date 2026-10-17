@@ -5,6 +5,7 @@ import '../../../../core/design/tokens/app_spacing.dart';
 import '../../data/chat_providers.dart';
 import '../widgets/chat_bubble.dart';
 import 'conversations_drawer.dart';
+import '../../../../core/design/widgets/mindora_app_bar.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key});
@@ -70,17 +71,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         onNewConversation: () =>
             ref.read(chatControllerProvider.notifier).startNew(),
       ),
-      appBar: AppBar(
-        title: const Text('MINDORA AI'),
-        actions: [
-          IconButton(
-            tooltip: 'New conversation',
-            icon: const Icon(Icons.add_comment_outlined),
-            onPressed: () =>
-                ref.read(chatControllerProvider.notifier).startNew(),
-          ),
-        ],
-      ),
+      appBar: const MindoraAppBar(showWordmark: true),
       body: SafeArea(
         child: Column(
           children: [

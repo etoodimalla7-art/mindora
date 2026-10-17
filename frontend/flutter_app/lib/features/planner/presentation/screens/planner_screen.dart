@@ -7,6 +7,7 @@ import '../../../../core/design/tokens/app_spacing.dart';
 import '../../../../core/design/widgets/widgets.dart';
 import '../../data/planner_providers.dart';
 import '../../domain/planner_models.dart';
+import '../../../../core/design/widgets/mindora_app_bar.dart';
 
 class PlannerScreen extends ConsumerWidget {
   const PlannerScreen({super.key});
@@ -16,8 +17,8 @@ class PlannerScreen extends ConsumerWidget {
     final plansAsync = ref.watch(plansListProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Planner'),
+      appBar: MindoraAppBar(
+        showWordmark: true,
         actions: [
           IconButton(
             tooltip: 'Refresh',

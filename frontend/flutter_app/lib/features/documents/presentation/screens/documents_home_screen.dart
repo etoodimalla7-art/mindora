@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/design/tokens/app_spacing.dart';
 import '../../../../core/design/widgets/widgets.dart';
 import '../../data/documents_providers.dart';
+import '../../../../core/design/widgets/mindora_app_bar.dart';
 
 class DocumentsHomeScreen extends ConsumerWidget {
   const DocumentsHomeScreen({super.key});
@@ -15,7 +16,7 @@ class DocumentsHomeScreen extends ConsumerWidget {
     final creditsAsync = ref.watch(creditBalanceProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Contribute & Learn')),
+      appBar: const MindoraAppBar(showWordmark: true),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(AppSpacing.xl),
