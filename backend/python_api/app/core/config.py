@@ -126,7 +126,17 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[misc]
     @property
     def cors_origins(self) -> list[str]:
-        return [o.strip() for o in self.CORS_ALLOWED_ORIGINS.split(",") if o.strip()]
+        # Static extras (Codespaces, local dev)
+        extras = [
+            "https://*.app.github.dev",  # Codespaces (all subdomains)
+            "http://localhost:3000",     # Flutter Web dev
+            "http://localhost:8000",     # Backend dev
+        ]
+        # Dynamic from env
+        env_origins = [
+            o.strip() for o in self.CORS_ALLOWED_ORIGINS.split(",") if o.strip()
+        ]
+        return extras + env_origins
 
     @property
     def is_production(self) -> bool:

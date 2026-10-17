@@ -193,6 +193,14 @@ class ChatController extends StateNotifier<ChatState> {
     await completer.future;
   }
 
+  void cancelStream() {
+    _sub?.cancel();
+    _sub = null;
+    if (state.sending) {
+      state = state.copyWith(sending: false);
+    }
+  }
+
   void clearError() => state = state.copyWith(clearError: true);
 }
 

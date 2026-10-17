@@ -1,6 +1,8 @@
 """Chat service — persistence + orchestration glue (streaming aware)."""
 from __future__ import annotations
 
+import asyncio
+
 import json
 import logging
 import uuid
@@ -9,6 +11,7 @@ from collections.abc import AsyncIterator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.sse import sse_event, sse_ping
 from app.core.errors import NotFoundError
 from app.integrations.ai.factory import get_chat_provider
 from app.integrations.ai.provider import ChatMessage
@@ -84,58 +87,126 @@ class ChatService:
         user_id: uuid.UUID,
         payload: ChatRequest,
     ) -> AsyncIterator[str]:
-        """Yield SSE-formatted chunks: `data: {json}\\n\\n`.
+        """Yield SSE-formatted chunks with keep-alive + timeout + error recovery.
 
-        Flow:
-          1. Create / fetch conversation, persist the user message.
-          2. Emit a `meta` event with the conversation id.
-          3. Stream tokens from Gemini.
-          4. On completion, persist the assistant message and emit `done`.
-
-        If the orchestrator would pick any tool other than general_chat,
-        we fall back to the non-streaming pipeline and emit the result in
-        a single chunk (tools like course_rag are fast anyway).
+        Hardening vs previous version:
+        - overall timeout (90s) → emits event:error instead of hanging forever
+        - keep-alive ping every 15s → prevents Render/proxy 60s cut
+        - all exceptions caught → emits event:error, never crashes generator
+        - emits final `done` even on error so client can complete its Completer
         """
-        conversation = await self._get_or_create_conversation(user_id, payload)
+        import time
 
-        user_msg = Message(
-            conversation_id=conversation.id,
-            role="user",
-            content=payload.message,
-        )
-        self.session.add(user_msg)
-        await self.session.flush()
-        await self.session.commit()
+        TIMEOUT_SECONDS = 90
+        conversation = None
+        assistant_msg = None
+        collected_text = ""
 
-        # Emit meta immediately so the client has the conversation id.
-        yield _sse(
-            "meta",
-            {"conversation_id": str(conversation.id)},
-        )
-
-        # Decide: stream or not?
-        should_stream = await self._should_stream(payload.message)
-        if not should_stream:
-            # Fallback to the non-streaming orchestrator and emit once.
-            history = await self._recent_history(conversation.id)
-            ctx = ToolContext(
-                user_id=str(user_id),
-                message=payload.message,
-                history=[
-                    ChatMessage(role=m.role, content=m.content) for m in history
-                ],
-                subject=conversation.subject,
-                extras={"session": self.session},
+        try:
+            # Step 1 — conversation + user message
+            conversation = await self._get_or_create_conversation(user_id, payload)
+            user_msg = Message(
+                conversation_id=conversation.id,
+                role="user",
+                content=payload.message,
             )
-            result = await self.orchestrator.run(ctx)
+            self.session.add(user_msg)
+            await self.session.flush()
+            await self.session.commit()
+
+            yield sse_event(
+                "meta", {"conversation_id": str(conversation.id)}
+            )
+
+            # Step 2 — decide stream vs fallback
+            should_stream = await self._should_stream(payload.message)
+
+            if not should_stream:
+                # Fallback to non-streaming orchestrator
+                history = await self._recent_history(conversation.id)
+                ctx = ToolContext(
+                    user_id=str(user_id),
+                    message=payload.message,
+                    history=[
+                        ChatMessage(role=m.role, content=m.content)
+                        for m in history
+                    ],
+                    subject=conversation.subject,
+                    extras={"session": self.session},
+                )
+                result = await asyncio.wait_for(
+                    self.orchestrator.run(ctx),
+                    timeout=TIMEOUT_SECONDS,
+                )
+                assistant_msg = Message(
+                    conversation_id=conversation.id,
+                    role="assistant",
+                    content=result.text,
+                    tools_used=result.tools_used,
+                    model=result.model,
+                    provider=result.provider,
+                    metadata_json={"reasoning": result.reasoning},
+                )
+                self.session.add(assistant_msg)
+                conversation.message_count = (conversation.message_count or 0) + 2
+                if conversation.message_count <= 2:
+                    conversation.title = _auto_title(payload.message)
+                await self.session.commit()
+                await self.session.refresh(assistant_msg)
+
+                yield sse_event("token", {"text": result.text})
+                yield sse_event("done", {
+                    "message_id": str(assistant_msg.id),
+                    "tools_used": result.tools_used,
+                    "model": result.model,
+                    "provider": result.provider,
+                    "usage": result.usage or {},
+                })
+                return
+
+            # Step 3 — pure streaming path with keep-alive
+            history = await self._recent_history(conversation.id)
+            provider = get_chat_provider()
+            messages = [
+                ChatMessage(role=m.role, content=m.content) for m in history
+            ] + [ChatMessage(role="user", content=payload.message)]
+
+            start = time.monotonic()
+            last_ping = start
+            stream_iter = provider.chat_stream(messages)
+
+            try:
+                async for token in _iter_with_timeout(
+                    stream_iter, TIMEOUT_SECONDS - (time.monotonic() - start)
+                ):
+                    if token:
+                        collected_text += token
+                        yield sse_event("token", {"text": token})
+
+                    # keep-alive
+                    now = time.monotonic()
+                    if now - last_ping >= 15:
+                        yield sse_ping()
+                        last_ping = now
+
+                    # global timeout check
+                    if (now - start) >= TIMEOUT_SECONDS:
+                        raise asyncio.TimeoutError("Stream exceeded 90s")
+
+            except asyncio.TimeoutError:
+                logger.warning("chat_stream timeout after 90s")
+                yield sse_event("error", {
+                    "message": "The AI took too long to respond. Please retry."
+                })
+
+            # Persist assistant message even if empty (so history is coherent)
             assistant_msg = Message(
                 conversation_id=conversation.id,
                 role="assistant",
-                content=result.text,
-                tools_used=result.tools_used,
-                model=result.model,
-                provider=result.provider,
-                metadata_json={"reasoning": result.reasoning},
+                content=collected_text or "(no response)",
+                tools_used=[],
+                model=provider.default_model,
+                provider=provider.name,
             )
             self.session.add(assistant_msg)
             conversation.message_count = (conversation.message_count or 0) + 2
@@ -144,79 +215,34 @@ class ChatService:
             await self.session.commit()
             await self.session.refresh(assistant_msg)
 
-            yield _sse("token", {"text": result.text})
-            yield _sse(
-                "done",
-                {
-                    "message_id": str(assistant_msg.id),
-                    "tools_used": result.tools_used,
-                    "model": result.model,
-                    "provider": result.provider,
-                    "usage": result.usage or {},
-                },
-            )
-            return
-
-        # Streaming path — pure general_chat.
-        history = await self._recent_history(conversation.id)
-        provider = get_chat_provider()
-
-        system_instruction = (
-            "You are MINDORA, a patient academic tutor for students in "
-            "Cameroon. Answer clearly in the same language as the student. "
-            "Show reasoning step by step for math and science. Never invent "
-            "citations. Keep answers structured: short intro, main "
-            "explanation, brief recap."
-        )
-        messages: list[ChatMessage] = [
-            ChatMessage(role="system", content=system_instruction)
-        ]
-        for m in history[-12:]:
-            messages.append(ChatMessage(role=m.role, content=m.content))
-        messages.append(ChatMessage(role="user", content=payload.message))
-
-        full_text_parts: list[str] = []
-        try:
-            async for chunk in provider.chat_stream(messages, temperature=0.5):
-                full_text_parts.append(chunk)
-                yield _sse("token", {"text": chunk})
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("stream_failed")
-            yield _sse(
-                "error",
-                {"message": "The AI service is temporarily unavailable."},
-            )
-            return
-
-        full_text = "".join(full_text_parts)
-        assistant_msg = Message(
-            conversation_id=conversation.id,
-            role="assistant",
-            content=full_text,
-            tools_used=[{"name": "general_chat", "error": None, "metadata": None}],
-            model=provider.default_model,
-            provider=provider.name,
-            metadata_json={"streamed": True},
-        )
-        self.session.add(assistant_msg)
-        conversation.message_count = (conversation.message_count or 0) + 2
-        if conversation.message_count <= 2:
-            conversation.title = _auto_title(payload.message)
-        await self.session.commit()
-        await self.session.refresh(assistant_msg)
-
-        yield _sse(
-            "done",
-            {
+            yield sse_event("done", {
                 "message_id": str(assistant_msg.id),
-                "tools_used": [{"name": "general_chat", "error": None, "metadata": None}],
+                "tools_used": [],
                 "model": provider.default_model,
                 "provider": provider.name,
                 "usage": {},
-            },
-        )
+            })
 
-    # ---------- Routing heuristic ----------
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("chat_stream fatal error: %s", exc)
+            try:
+                yield sse_event("error", {
+                    "message": f"Internal error: {exc.__class__.__name__}"
+                })
+            except Exception:
+                pass
+            # Always emit done so client's Completer resolves
+            try:
+                yield sse_event("done", {
+                    "message_id": "",
+                    "tools_used": [],
+                    "model": None,
+                    "provider": None,
+                    "usage": {},
+                })
+            except Exception:
+                pass
+
 
     async def _should_stream(self, message: str) -> bool:
         """Stream only if the message doesn't need course_rag or calculator.
@@ -302,3 +328,10 @@ def _auto_title(text: str) -> str:
 def _sse(event: str, data: dict) -> str:
     """Format a single SSE message."""
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+async def _iter_with_timeout(iterator, timeout: float):
+    """Wrap an async iterator with an overall timeout."""
+    deadline = asyncio.get_event_loop().time() + max(timeout, 1.0)
+    async for item in iterator:
+        if asyncio.get_event_loop().time() >= deadline:
+            raise asyncio.TimeoutError()
+        yield item

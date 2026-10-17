@@ -57,6 +57,10 @@ class PushService {
 
   /// Call once, early in main().
   Future<void> initialize() async {
+    if (kIsWeb) {
+      _log.i('Push notifications disabled on Web');
+      return;
+    }
     if (_initialized) return;
     _initialized = true;
 

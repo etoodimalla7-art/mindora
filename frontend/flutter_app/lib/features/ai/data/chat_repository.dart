@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 
 import '../domain/chat_models.dart';
+import 'sse_parser.dart';
 
 class ChatSendResult {
   const ChatSendResult({
@@ -80,55 +81,84 @@ class ChatRepository {
     if (conversationId != null) body['conversation_id'] = conversationId;
     if (subject != null) body['subject'] = subject;
 
-    final response = await _dio.post<ResponseBody>(
-      '/ai/chat/stream',
-      data: body,
-      options: Options(
-        responseType: ResponseType.stream,
-        headers: {'Accept': 'text/event-stream'},
-      ),
-    );
+    // Timeout global (aligné sur le backend : 90s + marge 15s)
+    const overallTimeout = Duration(seconds: 105);
 
-    final stream = response.data!.stream;
-    final buffer = StringBuffer();
+    final controller = StreamController<ChatStreamEvent>();
+    StreamSubscription? sub;
 
-    await for (final chunk in stream) {
-      final text = utf8.decode(chunk, allowMalformed: true);
-      buffer.write(text);
-
-      // SSE messages are separated by a blank line.
-      while (true) {
-        final current = buffer.toString();
-        final idx = current.indexOf('\n\n');
-        if (idx == -1) break;
-
-        final block = current.substring(0, idx);
-        buffer.clear();
-        buffer.write(current.substring(idx + 2));
-
-        final parsed = _parseBlock(block);
-        if (parsed != null) yield parsed;
+    final timer = Timer(overallTimeout, () {
+      if (!controller.isClosed) {
+        controller.add(ChatErrorEvent(
+          'The response took too long. Please try again.',
+        ));
+        controller.close();
+        sub?.cancel();
       }
+    });
+
+    try {
+      final response = await _dio.post<ResponseBody>(
+        '/ai/chat/stream',
+        data: body,
+        options: Options(
+          responseType: ResponseType.stream,
+          headers: {'Accept': 'text/event-stream'},
+          receiveTimeout: const Duration(seconds: 120),
+        ),
+      );
+
+      final byteStream = response.data!.stream;
+      final parser = SseParser();
+
+      sub = byteStream.listen(
+        (chunk) {
+          for (final sse in parser.feed(chunk)) {
+            final parsed = _parseEvent(sse);
+            if (parsed != null && !controller.isClosed) {
+              controller.add(parsed);
+            }
+          }
+        },
+        onError: (e) {
+          if (!controller.isClosed) {
+            controller.add(ChatErrorEvent('Connection error: $e'));
+            controller.close();
+          }
+          timer.cancel();
+        },
+        onDone: () {
+          for (final sse in parser.close()) {
+            final parsed = _parseEvent(sse);
+            if (parsed != null && !controller.isClosed) {
+              controller.add(parsed);
+            }
+          }
+          if (!controller.isClosed) controller.close();
+          timer.cancel();
+        },
+        cancelOnError: true,
+      );
+
+      yield* controller.stream;
+    } catch (e) {
+      timer.cancel();
+      if (!controller.isClosed) {
+        controller.add(ChatErrorEvent('Failed to connect: $e'));
+        controller.close();
+      }
+      rethrow;
+    } finally {
+      timer.cancel();
     }
   }
 
-  ChatStreamEvent? _parseBlock(String block) {
-    String? event;
-    final dataLines = <String>[];
-    for (final line in block.split('\n')) {
-      if (line.startsWith('event: ')) {
-        event = line.substring(7).trim();
-      } else if (line.startsWith('data: ')) {
-        dataLines.add(line.substring(6));
-      }
-    }
-    if (event == null || dataLines.isEmpty) return null;
-    final dataStr = dataLines.join('\n');
+  ChatStreamEvent? _parseEvent(SseEvent sse) {
     try {
-      final json = jsonDecode(dataStr) as Map<String, dynamic>;
-      switch (event) {
+      final json = jsonDecode(sse.data) as Map<String, dynamic>;
+      switch (sse.event) {
         case 'meta':
-          return ChatMeta(json['conversation_id'] as String);
+          return ChatMeta(json['conversation_id'] as String? ?? '');
         case 'token':
           return ChatToken(json['text'] as String? ?? '');
         case 'done':
@@ -149,6 +179,7 @@ class ChatRepository {
     }
     return null;
   }
+
 
   Future<List<Conversation>> listConversations() async {
     final r = await _dio.get('/ai/conversations');
