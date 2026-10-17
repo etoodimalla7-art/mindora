@@ -33,12 +33,22 @@ jobs:
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
 
-      - name: Print signing SHA-1
-        working-directory: frontend/flutter_app/android
+      - name: Generate keystore and print SHA-1
         run: |
+          # Generate debug keystore if it doesn't exist
+          if [ ! -f ~/.android/debug.keystore ]; then
+            mkdir -p ~/.android
+            keytool -genkeypair -v \
+              -keystore ~/.android/debug.keystore \
+              -storepass android -keypass android \
+              -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          echo "=================== SHA-1 SIGNING KEY ==================="
           keytool -list -v -keystore ~/.android/debug.keystore \
             -alias androiddebugkey \
-            -storepass android -keypass android | grep SHA1
+            -storepass android -keypass android | grep -E "SHA1|SHA256"
+          echo "========================================================="
 
       - name: Build APK
         working-directory: frontend/flutter_app
