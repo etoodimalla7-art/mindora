@@ -19,4 +19,10 @@ class AppRoutes {
 
   // Debug
   static const String debugPush = '/debug/push';
+
+  // Admin
+  static const String adminDashboard = '/admin/dashboard';
+  static const String adminUsers = '/admin/users';
+  static const String adminPapers = '/admin/papers';
+
 }

@@ -130,7 +130,7 @@ class _ModerationCard extends StatelessWidget {
       'under_review' => ('UNDER REVIEW', AppBadgeTone.warning),
       'rejected' => ('REJECTED', AppBadgeTone.danger),
       'uploading' => ('UPLOADING', AppBadgeTone.info),
-      _ => (doc.status.toUpperCase(), AppBadgeTone.neutral),
+      _ => ((doc.status ?? 'unknown').toUpperCase(), AppBadgeTone.neutral),
     };
 
     return AppSurface(
@@ -158,7 +158,7 @@ class _ModerationCard extends StatelessWidget {
             [
               if (doc.category != null) doc.category,
               if (doc.academicLevel != null) doc.academicLevel,
-              doc.language.toUpperCase(),
+              (doc.language ?? '').toUpperCase(),
             ].whereType<String>().join(' · '),
             style: theme.textTheme.labelSmall,
           ),
@@ -172,7 +172,7 @@ class _ModerationCard extends StatelessWidget {
               ),
               const SizedBox(width: 4),
               Text(
-                '${(doc.sizeBytes / 1024).toStringAsFixed(1)} KB',
+                '${((doc.sizeBytes ?? 0) / 1024).toStringAsFixed(1)} KB',
                 style: theme.textTheme.labelSmall,
               ),
               const SizedBox(width: AppSpacing.md),
@@ -183,7 +183,7 @@ class _ModerationCard extends StatelessWidget {
               ),
               const SizedBox(width: 4),
               Text(
-                '${(doc.qualityScore * 100).toStringAsFixed(0)}% quality',
+                '${((doc.qualityScore ?? 0.0) * 100).toStringAsFixed(0)}% quality',
                 style: theme.textTheme.labelSmall,
               ),
               const Spacer(),

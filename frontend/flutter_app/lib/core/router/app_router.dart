@@ -3,6 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/admin/presentation/admin_shell.dart';
+import '../../features/admin/presentation/screens/admin_dashboard_screen.dart';
+import '../../features/admin/presentation/screens/admin_papers_screen.dart';
+import '../../features/admin/presentation/screens/admin_users_screen.dart';
 import '../../features/admin/presentation/screens/admin_document_detail_screen.dart';
 import '../../features/admin/presentation/screens/admin_moderation_screen.dart';
 import '../../features/ai/presentation/screens/chat_screen.dart';
@@ -94,6 +98,27 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
 
       // Admin
+      // Admin shell (interface séparée)
+      ShellRoute(
+        builder: (_, __, child) => AdminShell(child: child),
+        routes: [
+          GoRoute(
+            path: AppRoutes.adminDashboard,
+            name: 'adminDashboard',
+            builder: (_, __) => const AdminDashboardScreen(),
+          ),
+          GoRoute(
+            path: AppRoutes.adminUsers,
+            name: 'adminUsers',
+            builder: (_, __) => const AdminUsersScreen(),
+          ),
+          GoRoute(
+            path: AppRoutes.adminPapers,
+            name: 'adminPapers',
+            builder: (_, __) => const AdminPapersScreen(),
+          ),
+        ],
+      ),
       GoRoute(
         path: '/admin/moderation',
         builder: (_, __) => const AdminModerationScreen(),
