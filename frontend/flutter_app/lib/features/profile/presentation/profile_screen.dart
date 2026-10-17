@@ -225,6 +225,19 @@ class ProfileScreen extends ConsumerWidget {
             const SizedBox(height: AppSpacing.lg),
             // ===== END DEBUG =====
 
+            // Settings button
+            Card(
+              elevation: 0,
+              child: ListTile(
+                leading: const Icon(Icons.settings_outlined),
+                title: const Text('Settings'),
+                subtitle: const Text('Theme, language, about'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push('/settings'),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+
             AppButton(
               label: 'Sign out',
               icon: Icons.logout,

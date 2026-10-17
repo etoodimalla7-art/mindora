@@ -19,6 +19,7 @@ class AppRoutes {
 
   // Debug
   static const String debugPush = '/debug/push';
+  static const String settings = '/settings';
 
   // Admin
   static const String adminDashboard = '/admin/dashboard';
