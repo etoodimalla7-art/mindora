@@ -6,6 +6,7 @@ import '../../data/chat_providers.dart';
 import '../widgets/chat_bubble.dart';
 import 'conversations_drawer.dart';
 import '../../../../core/design/widgets/mindora_app_bar.dart';
+import '../../../../core/design/widgets/skeleton_loader.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key});

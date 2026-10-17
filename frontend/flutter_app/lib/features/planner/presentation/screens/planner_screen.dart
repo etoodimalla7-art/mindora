@@ -8,6 +8,7 @@ import '../../../../core/design/widgets/widgets.dart';
 import '../../data/planner_providers.dart';
 import '../../domain/planner_models.dart';
 import '../../../../core/design/widgets/mindora_app_bar.dart';
+import '../../../../core/design/widgets/skeleton_loader.dart';
 
 class PlannerScreen extends ConsumerWidget {
   const PlannerScreen({super.key});
@@ -33,13 +34,14 @@ class PlannerScreen extends ConsumerWidget {
         label: const Text('New plan'),
       ),
       body: SafeArea(
-        child: plansAsync.when(
-          loading: () => ListView(
+        child: plansAsync.when(          loading: () => ListView(
             padding: const EdgeInsets.all(AppSpacing.xl),
-            children: const [
-              AppSkeleton(height: 100),
-              SizedBox(height: AppSpacing.md),
-              AppSkeleton(height: 100),
+            children: [
+              SkeletonLoader.card(height: 100),
+              const SizedBox(height: 12),
+              SkeletonLoader.card(height: 100),
+              const SizedBox(height: 12),
+              SkeletonLoader.card(height: 100),
             ],
           ),
           error: (err, _) => AppEmptyState(

@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 
 import '../tokens/app_spacing.dart';
 import 'app_button.dart';
 
+/// Premium empty state with icon in a gradient circle, title, message, CTA.
+/// Automatically fades + slides in on first render.
 class AppEmptyState extends StatelessWidget {
   const AppEmptyState({
     super.key,
@@ -11,6 +14,7 @@ class AppEmptyState extends StatelessWidget {
     required this.message,
     this.actionLabel,
     this.onAction,
+    this.iconSize = 36,
   });
 
   final IconData icon;
@@ -18,10 +22,13 @@ class AppEmptyState extends StatelessWidget {
   final String message;
   final String? actionLabel;
   final VoidCallback? onAction;
+  final double iconSize;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final primary = theme.colorScheme.primary;
+
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
@@ -30,16 +37,42 @@ class AppEmptyState extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Gradient circle + icon
               Container(
-                padding: const EdgeInsets.all(18),
+                width: 96,
+                height: 96,
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.08),
                   shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      primary.withValues(alpha: 0.18),
+                      primary.withValues(alpha: 0.06),
+                    ],
+                  ),
                 ),
-                child: Icon(icon, size: 30, color: theme.colorScheme.primary),
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              Text(title, style: theme.textTheme.titleLarge, textAlign: TextAlign.center),
+                child: Icon(
+                  icon,
+                  size: iconSize,
+                  color: primary,
+                ),
+              )
+                  .animate()
+                  .fadeIn(duration: 400.ms)
+                  .scale(
+                    begin: const Offset(0.85, 0.85),
+                    curve: Curves.easeOutBack,
+                    duration: 500.ms,
+                  ),
+              const SizedBox(height: AppSpacing.xl),
+              Text(
+                title,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+                textAlign: TextAlign.center,
+              ).animate().fadeIn(delay: 200.ms, duration: 400.ms),
               const SizedBox(height: AppSpacing.sm),
               Text(
                 message,
@@ -47,10 +80,14 @@ class AppEmptyState extends StatelessWidget {
                   color: theme.colorScheme.onSurface.withValues(alpha: 0.65),
                 ),
                 textAlign: TextAlign.center,
-              ),
+              ).animate().fadeIn(delay: 300.ms, duration: 400.ms),
               if (actionLabel != null && onAction != null) ...[
                 const SizedBox(height: AppSpacing.xl),
-                AppButton(label: actionLabel!, onPressed: onAction, expand: false),
+                AppButton(
+                  label: actionLabel!,
+                  onPressed: onAction,
+                  expand: false,
+                ).animate().fadeIn(delay: 400.ms, duration: 400.ms),
               ],
             ],
           ),
