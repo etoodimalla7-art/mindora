@@ -22,6 +22,7 @@ import '../../features/mock_exams/presentation/screens/mock_exam_results_screen.
 import '../../features/mock_exams/presentation/screens/mock_exams_list_screen.dart';
 import '../../features/mock_exams/presentation/screens/take_mock_exam_screen.dart';
 import '../../features/onboarding/presentation/onboarding_screen.dart';
+import '../../features/onboarding/presentation/welcome_screen.dart';
 import '../../features/planner/presentation/screens/create_exam_plan_screen.dart';
 import '../../features/planner/presentation/screens/create_plan_screen.dart';
 import '../../features/planner/presentation/screens/plan_detail_screen.dart';
@@ -52,6 +53,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.login,
         name: 'login',
         builder: (_, __) => const LoginScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.welcome,
+        name: 'welcome',
+        builder: (_, __) => const WelcomeScreen(),
       ),
       GoRoute(
         path: AppRoutes.onboarding,

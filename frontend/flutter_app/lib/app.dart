@@ -41,8 +41,25 @@ class MindoraApp extends ConsumerWidget {
           minScaleFactor: 0.9,
           maxScaleFactor: 1.4,
         );
+        // Safety: clamp viewInsets/padding to non-negative (Flutter Web keyboard bug)
+        final safeInsets = EdgeInsets.fromLTRB(
+          media.viewInsets.left.clamp(0.0, double.infinity),
+          media.viewInsets.top.clamp(0.0, double.infinity),
+          media.viewInsets.right.clamp(0.0, double.infinity),
+          media.viewInsets.bottom.clamp(0.0, double.infinity),
+        );
+        final safePadding = EdgeInsets.fromLTRB(
+          media.padding.left.clamp(0.0, double.infinity),
+          media.padding.top.clamp(0.0, double.infinity),
+          media.padding.right.clamp(0.0, double.infinity),
+          media.padding.bottom.clamp(0.0, double.infinity),
+        );
         return MediaQuery(
-          data: media.copyWith(textScaler: clamped),
+          data: media.copyWith(
+            textScaler: clamped,
+            viewInsets: safeInsets,
+            padding: safePadding,
+          ),
           child: PushListener(
             child: ResponsiveBreakpoints.builder(
             child: child ?? const SizedBox.shrink(),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../audio/feedback_service.dart';
 
 enum AppButtonVariant { primary, secondary, ghost, danger }
 
@@ -46,15 +47,15 @@ class AppButton extends StatelessWidget {
           );
 
     final button = switch (variant) {
-      AppButtonVariant.primary => FilledButton(onPressed: loading ? null : onPressed, child: child),
-      AppButtonVariant.secondary => OutlinedButton(onPressed: loading ? null : onPressed, child: child),
-      AppButtonVariant.ghost => TextButton(onPressed: loading ? null : onPressed, child: child),
+      AppButtonVariant.primary => FilledButton(onPressed: loading ? null : () { FeedbackService.instance.tap(); onPressed!(); }, child: child),
+      AppButtonVariant.secondary => OutlinedButton(onPressed: loading ? null : () { FeedbackService.instance.tap(); onPressed!(); }, child: child),
+      AppButtonVariant.ghost => TextButton(onPressed: loading ? null : () { FeedbackService.instance.tap(); onPressed!(); }, child: child),
       AppButtonVariant.danger => FilledButton(
           style: FilledButton.styleFrom(
             backgroundColor: Theme.of(context).colorScheme.error,
             foregroundColor: Theme.of(context).colorScheme.onError,
           ),
-          onPressed: loading ? null : onPressed,
+          onPressed: loading ? null : () { FeedbackService.instance.tap(); onPressed!(); },
           child: child,
         ),
     };

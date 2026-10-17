@@ -43,7 +43,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
         context.go(AppRoutes.home);
       }
     } else {
-      context.go(AppRoutes.onboarding);
+      context.go(AppRoutes.welcome);
     }
   }
 
