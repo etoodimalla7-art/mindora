@@ -122,22 +122,68 @@ class ChatService:
             should_stream = await self._should_stream(payload.message)
 
             if not should_stream:
-                # Fallback to non-streaming orchestrator
+                # Fallback to non-streaming orchestrator.
+                # Use a SEPARATE session to avoid conflicts with the outer one.
+                from app.db.session import AsyncSessionLocal
+
+                logger.info(
+                    "chat_stream_fallback_start msg_len=%d",
+                    len(payload.message),
+                )
+
                 history = await self._recent_history(conversation.id)
-                ctx = ToolContext(
-                    user_id=str(user_id),
-                    message=payload.message,
-                    history=[
-                        ChatMessage(role=m.role, content=m.content)
-                        for m in history
-                    ],
-                    subject=conversation.subject,
-                    extras={"session": self.session},
-                )
-                result = await asyncio.wait_for(
-                    self.orchestrator.run(ctx),
-                    timeout=TIMEOUT_SECONDS,
-                )
+                try:
+                    async with AsyncSessionLocal() as orch_session:
+                        orch = Orchestrator(orch_session)
+                        ctx = ToolContext(
+                            user_id=str(user_id),
+                            message=payload.message,
+                            history=[
+                                ChatMessage(role=m.role, content=m.content)
+                                for m in history
+                            ],
+                            subject=conversation.subject,
+                            extras={"session": orch_session},
+                        )
+                        logger.info("chat_stream_orchestrator_run_start")
+                        # Shorter timeout for the tool fallback (30s)
+                        result = await asyncio.wait_for(
+                            orch.run(ctx),
+                            timeout=30,
+                        )
+                        logger.info(
+                            "chat_stream_orchestrator_run_done text_len=%d tools=%s",
+                            len(result.text or ""),
+                            [t.get("name") for t in (result.tools_used or [])],
+                        )
+                except asyncio.TimeoutError:
+                    logger.error("chat_stream_orchestrator_timeout_30s")
+                    yield sse_event("error", {
+                        "message": "L'analyse de vos documents prend trop de temps. Réessayez."
+                    })
+                    yield sse_event("done", {
+                        "message_id": "",
+                        "tools_used": [],
+                        "model": None,
+                        "provider": None,
+                        "usage": {},
+                    })
+                    return
+                except Exception as exc:
+                    logger.exception("chat_stream_orchestrator_failed: %s", exc)
+                    yield sse_event("error", {
+                        "message": f"AI error: {exc.__class__.__name__}"
+                    })
+                    yield sse_event("done", {
+                        "message_id": "",
+                        "tools_used": [],
+                        "model": None,
+                        "provider": None,
+                        "usage": {},
+                    })
+                    return
+
+                # Persist assistant message on the OUTER session
                 assistant_msg = Message(
                     conversation_id=conversation.id,
                     role="assistant",

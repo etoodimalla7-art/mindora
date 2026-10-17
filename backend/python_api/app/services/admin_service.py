@@ -1,6 +1,8 @@
 """Admin service — documents moderation + users + papers + stats."""
 from __future__ import annotations
 
+import logging
+
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -24,6 +26,7 @@ from app.models.paper import (
 )
 from app.models.plan import StudySession
 from app.models.user import User
+from ai.rag.embedder import index_document
 from app.schemas.admin import (
     ActivityStats,
     AdminDocumentRow,
@@ -39,6 +42,9 @@ from app.schemas.admin import (
     ToggleActiveResponse,
     UsersStats,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class AdminService:
@@ -73,6 +79,23 @@ class AdminService:
             raise NotFoundError("Document not found.")
         doc.status = DOC_STATUS_APPROVED
         await self.session.commit()
+
+        # --- RAG pipeline (chunk + embed + store) ---
+        # Non-blocking: an embedding failure must not roll back the approval.
+        try:
+            n_chunks = await index_document(self.session, doc)
+            # index_document does flush() but not commit() — commit here
+            # so the chunks are actually persisted.
+            await self.session.commit()
+            logger.info(
+                "rag_index_done doc_id=%s chunks=%d", doc.id, n_chunks
+            )
+        except Exception as exc:  # noqa: BLE001
+            await self.session.rollback()
+            logger.exception(
+                "rag_index_failed doc_id=%s error=%s", doc.id, exc
+            )
+
         return ApproveResponse(id=doc.id, status=doc.status)
 
     async def reject(self, doc_id: uuid.UUID, reason: str) -> RejectResponse:
