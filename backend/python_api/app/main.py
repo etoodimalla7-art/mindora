@@ -58,9 +58,19 @@ def create_app() -> FastAPI:
         allow_origins=settings.cors_origins,
         allow_origin_regex=r"https?://.*\.app\.github\.dev",
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-        expose_headers=["X-Request-ID"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "Accept",
+            "Origin",
+            "User-Agent",
+            "Cache-Control",
+            "X-Requested-With",
+            "X-Request-ID",
+        ],
+        expose_headers=["X-Request-ID", "Content-Type"],
+        max_age=86400,
     )
     app.add_middleware(RequestIDMiddleware)
 
