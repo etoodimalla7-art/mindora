@@ -6,6 +6,7 @@ import '../../../core/design/tokens/app_spacing.dart';
 import '../../../core/design/widgets/widgets.dart';
 import '../../../core/router/routes.dart';
 import 'auth_controller.dart';
+import '../../../core/design/widgets/brand_logo.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -33,7 +34,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         );
     if (!mounted) return;
     if (ok) {
-      context.go(AppRoutes.home);
+      // Admin users go straight to /admin/dashboard
+      final authState = ref.read(authControllerProvider);
+      final isAdmin = authState.session?.user.isAdmin == true;
+      if (isAdmin) {
+        context.go(AppRoutes.adminDashboard);
+      } else {
+        context.go(AppRoutes.home);
+      }
     } else {
       final err = ref.read(authControllerProvider).error ?? 'Login failed.';
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
@@ -52,6 +60,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           child: ListView(
             children: [
               const SizedBox(height: AppSpacing.xxxl),
+              // MINDORA logo
+              const Center(child: BrandLogo(size: 80)),
+              const SizedBox(height: AppSpacing.xl),
+
+              // MINDORA logo
+              const Center(child: BrandLogo(size: 80)),
+              const SizedBox(height: AppSpacing.xl),
+
               Text('Welcome back', style: theme.textTheme.headlineMedium),
               const SizedBox(height: AppSpacing.xs),
               Text(
