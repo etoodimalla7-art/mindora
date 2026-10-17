@@ -99,7 +99,7 @@ class ProfileScreen extends ConsumerWidget {
             const SizedBox(height: AppSpacing.xl),
 
             // Account
-            Text('Account', style: theme.textTheme.titleMedium),
+            Text('Account', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
             const SizedBox(height: AppSpacing.md),
             AppSurface(
               padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
@@ -143,7 +143,7 @@ class ProfileScreen extends ConsumerWidget {
             ],
 
             // App
-            Text('App', style: theme.textTheme.titleMedium),
+            Text('App', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
             const SizedBox(height: AppSpacing.md),
             AppSurface(
               padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),

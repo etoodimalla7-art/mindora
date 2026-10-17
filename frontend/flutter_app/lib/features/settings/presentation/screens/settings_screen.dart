@@ -22,7 +22,7 @@ class SettingsScreen extends ConsumerWidget {
           padding: const EdgeInsets.all(AppSpacing.xl),
           children: [
             // ============ APPEARANCE ============
-            Text('Appearance', style: theme.textTheme.titleMedium),
+            Text('Appearance', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
             const SizedBox(height: AppSpacing.md),
 
             Card(
@@ -64,7 +64,7 @@ class SettingsScreen extends ConsumerWidget {
             const SizedBox(height: AppSpacing.xxl),
 
             // ============ LANGUAGE ============
-            Text('Language', style: theme.textTheme.titleMedium),
+            Text('Language', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
             const SizedBox(height: AppSpacing.md),
 
             Card(
@@ -96,7 +96,7 @@ class SettingsScreen extends ConsumerWidget {
             const SizedBox(height: AppSpacing.xxl),
 
             // ============ ABOUT ============
-            Text('About', style: theme.textTheme.titleMedium),
+            Text('About', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
             const SizedBox(height: AppSpacing.md),
 
             Card(

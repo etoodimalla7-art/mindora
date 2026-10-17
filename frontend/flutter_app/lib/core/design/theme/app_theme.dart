@@ -62,7 +62,12 @@ class AppTheme {
         elevation: 0,
         surfaceTintColor: Colors.transparent,
         margin: EdgeInsets.zero,
-        shape: const RoundedRectangleBorder(borderRadius: AppRadius.lgAll),
+        shape: RoundedRectangleBorder(
+          borderRadius: AppRadius.lgAll,
+          side: isDark
+              ? BorderSide(color: outline.withValues(alpha: 0.3))
+              : BorderSide(color: outline.withValues(alpha: 0.5)),
+        ),
       ),
 
       dividerTheme: DividerThemeData(color: outline, thickness: 1, space: 1),
@@ -71,7 +76,7 @@ class AppTheme {
         filled: true,
         fillColor: surfaceAlt,
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        hintStyle: textTheme.bodyMedium?.copyWith(color: muted),
+        hintStyle: textTheme.bodyMedium?.copyWith(color: muted.withValues(alpha: 0.85)),
         border: OutlineInputBorder(
           borderRadius: AppRadius.mdAll,
           borderSide: BorderSide(color: outline),
@@ -98,6 +103,8 @@ class AppTheme {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
           shape: const RoundedRectangleBorder(borderRadius: AppRadius.mdAll),
           textStyle: textTheme.labelLarge,
+          elevation: isDark ? 0 : 2,
+          shadowColor: primary.withValues(alpha: 0.3),
         ),
       ),
 
@@ -131,7 +138,7 @@ class AppTheme {
 
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: surface,
-        indicatorColor: primary.withValues(alpha: 0.12),
+        indicatorColor: primary.withValues(alpha: isDark ? 0.18 : 0.15),
         height: 68,
         labelTextStyle: WidgetStatePropertyAll(textTheme.labelSmall),
         iconTheme: WidgetStateProperty.resolveWith((states) {
