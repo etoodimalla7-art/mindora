@@ -33,6 +33,13 @@ jobs:
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
 
+      - name: Print signing SHA-1
+        working-directory: frontend/flutter_app/android
+        run: |
+          keytool -list -v -keystore ~/.android/debug.keystore \
+            -alias androiddebugkey \
+            -storepass android -keypass android | grep SHA1
+
       - name: Build APK
         working-directory: frontend/flutter_app
         run: |
