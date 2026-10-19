@@ -84,16 +84,7 @@ class _ValidatedEmailFieldState extends State<ValidatedEmailField> {
                 : null,
           ),
         ),
-        if (_error != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 6, left: 12),
-            child: Text(
-              _error!,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.error,
-              ),
-            ),
-          ),
+
       ],
     );
   }

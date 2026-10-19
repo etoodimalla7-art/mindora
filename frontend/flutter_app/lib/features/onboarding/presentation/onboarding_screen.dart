@@ -85,7 +85,6 @@ final onboardingProvider =
 // =============================================================
 
 enum _Step {
-  account,
   language,
   country,
   educationSystem,
@@ -102,7 +101,6 @@ enum _Step {
 
 extension on _Step {
   String title(AppStrings s) => switch (this) {
-        _Step.account => s.stepAccount,
         _Step.language => s.stepLanguage,
         _Step.country => s.stepCountry,
         _Step.educationSystem => s.stepEducationSystem,
@@ -118,7 +116,6 @@ extension on _Step {
       };
 
   String subtitle(AppStrings s) => switch (this) {
-        _Step.account => s.stepAccountSub,
         _Step.language => s.stepLanguageSub,
         _Step.country => s.stepCountrySub,
         _Step.educationSystem => s.stepEducationSystemSub,
@@ -146,7 +143,28 @@ class OnboardingScreen extends ConsumerStatefulWidget {
 }
 
 class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
-  static const _steps = _Step.values;
+
+  /// Filtre dynamique des étapes selon les réponses de l'utilisateur.
+  List<_Step> get _visibleSteps {
+    final draft = ref.read(onboardingProvider);
+    return _Step.values.where((step) {
+      // Skip "subjects" si niveau universitaire
+      if (step == _Step.subjects) {
+        final univLevels = ['hnd', 'master', 'bachelor', 'licence'];
+        return !univLevels.contains(draft.level);
+      }
+      // Skip "program" si niveau GCE (matières fixes)
+      if (step == _Step.program) {
+        final gceLevels = ['gce_o', 'gce_a', 'ordinary_level', 'advanced_level'];
+        return !gceLevels.contains(draft.level);
+      }
+      // Skip "examDate" si goal n'est pas un examen
+      if (step == _Step.examDate) {
+        return draft.goal == null || draft.goal == 'pass_exam';
+      }
+      return true;
+    }).toList();
+  }
   int _index = 0;
   bool _submitting = false;
 
@@ -165,7 +183,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 
   void _next() async {
-    if (_index < _steps.length - 1) {
+    if (_index < _visibleSteps.length - 1) {
       setState(() => _index++);
       return;
     }
@@ -242,6 +260,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     }
   }
 
+  /// Skip toutes les étapes restantes et va à la dernière.
+  void _skipToEnd() {
+    setState(() => _index = _visibleSteps.length - 1);
+  }
+
   void _back() {
     if (_index > 0) setState(() => _index--);
   }
@@ -249,8 +272,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
-    final step = _steps[_index];
-    final progress = (_index + 1) / _steps.length;
+    final step = _visibleSteps[_index];
+    final progress = (_index + 1) / _visibleSteps.length;
 
     return Scaffold(
       body: SafeArea(
@@ -269,6 +292,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     )
                   else
                     const SizedBox(width: 48),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: _submitting ? null : _skipToEnd,
+                    child: Text(s.skip),
+                  ),
                   Expanded(
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(999),
@@ -310,7 +338,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               Expanded(child: _buildStep(step)),
               const SizedBox(height: AppSpacing.lg),
               AppButton(
-                label: _index == _steps.length - 1 ? s.finish : s.continueLabel,
+                label: _index == _visibleSteps.length - 1 ? s.finish : s.continueLabel,
                 loading: _submitting,
                 onPressed: _submitting ? null : _next,
               ),
@@ -322,7 +350,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 
   Widget _buildStep(_Step step) => switch (step) {
-        _Step.account => _StepAccount(),
         _Step.language => _StepLanguage(),
         _Step.country => _StepCountry(),
         _Step.educationSystem => _StepEducationSystem(),

@@ -206,34 +206,13 @@ class ProfileScreen extends ConsumerWidget {
             ),
             const SizedBox(height: AppSpacing.xl),
 
-            // ===== DEBUG: Push diagnostic (à retirer en prod) =====
-            Card(
-              elevation: 0,
-              color: Colors.orange.withValues(alpha: 0.08),
-              child: ListTile(
-                leading: const Icon(
-                  Icons.bug_report,
-                  color: Colors.orange,
-                ),
-                title: const Text('🐛 Push Debug'),
-                subtitle: const Text(
-                  'Diagnostiquer les notifications',
-                ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => context.push('/debug/push'),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            // ===== END DEBUG =====
-
-            // Settings button
-            Card(
-              elevation: 0,
-              child: ListTile(
-                leading: const Icon(Icons.settings_outlined),
-                title: const Text('Settings'),
-                subtitle: const Text('Theme, language, about'),
-                trailing: const Icon(Icons.chevron_right),
+            AppSurface(
+              padding: EdgeInsets.zero,
+              child: AppListTile(
+                title: 'Settings',
+                subtitle: 'Theme, language, about',
+                leadingIcon: Icons.settings_outlined,
+                showChevron: true,
                 onTap: () => context.push('/settings'),
               ),
             ),
