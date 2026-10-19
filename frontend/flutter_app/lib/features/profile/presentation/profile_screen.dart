@@ -7,6 +7,7 @@ import '../../../core/design/widgets/widgets.dart';
 import '../../../core/router/routes.dart';
 import '../../auth/presentation/auth_controller.dart';
 import '../../documents/data/documents_providers.dart';
+import '../../../core/design/widgets/mindora_avatar.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -41,8 +42,8 @@ class ProfileScreen extends ConsumerWidget {
             Center(
               child: Column(
                 children: [
-                  AppAvatar(
-                    initials: (user.fullName ?? user.email).substring(0, 1),
+                  MindoraAvatar(
+                    name: user.fullName ?? user.email,
                     size: 80,
                   ),
                   const SizedBox(height: AppSpacing.md),

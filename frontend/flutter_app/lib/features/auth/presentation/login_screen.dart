@@ -3,10 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/design/tokens/app_spacing.dart';
-import '../../../core/design/widgets/widgets.dart';
+import '../../../core/design/widgets/brand_logo.dart';
+import '../../../core/forms/validated_email_field.dart';
+import '../../../core/forms/validated_password_field.dart';
 import '../../../core/router/routes.dart';
 import 'auth_controller.dart';
-import '../../../core/design/widgets/brand_logo.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -18,7 +19,12 @@ class LoginScreen extends ConsumerStatefulWidget {
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
-  bool _obscure = true;
+  bool _emailValid = false;
+  bool _passwordValid = false;
+  bool _submitting = false;
+
+  bool get _canSubmit =>
+      _emailValid && _passwordValid && !_submitting;
 
   @override
   void dispose() {
@@ -28,13 +34,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _submit() async {
+    if (!_canSubmit) return;
+
+    setState(() => _submitting = true);
+
     final ok = await ref.read(authControllerProvider.notifier).login(
           email: _email.text.trim(),
           password: _password.text,
         );
+
     if (!mounted) return;
+    setState(() => _submitting = false);
+
     if (ok) {
-      // Admin users go straight to /admin/dashboard
       final authState = ref.read(authControllerProvider);
       final isAdmin = authState.session?.user.isAdmin == true;
       if (isAdmin) {
@@ -44,7 +56,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       }
     } else {
       final err = ref.read(authControllerProvider).error ?? 'Login failed.';
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(err),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
     }
   }
 
@@ -52,6 +69,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final state = ref.watch(authControllerProvider);
+    final isLoading = state.loading || _submitting;
 
     return Scaffold(
       body: SafeArea(
@@ -60,7 +78,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           child: ListView(
             children: [
               const SizedBox(height: AppSpacing.xxxl),
-              // MINDORA logo
               const Center(child: BrandLogo(size: 80)),
               const SizedBox(height: AppSpacing.xl),
 
@@ -73,36 +90,88 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
               ),
               const SizedBox(height: AppSpacing.xxxl),
-              AppTextField(
+
+              // Email with real-time validation
+              ValidatedEmailField(
                 controller: _email,
                 label: 'Email',
                 hint: 'you@example.com',
-                keyboardType: TextInputType.emailAddress,
-                prefixIcon: Icons.alternate_email,
+                onValidChanged: (valid) {
+                  if (valid != _emailValid) {
+                    setState(() => _emailValid = valid);
+                  }
+                },
               ),
               const SizedBox(height: AppSpacing.lg),
-              AppTextField(
+
+              // Password with real-time validation
+              ValidatedPasswordField(
                 controller: _password,
                 label: 'Password',
                 hint: 'Your password',
-                obscureText: _obscure,
-                prefixIcon: Icons.lock_outline,
-                suffixIcon: IconButton(
-                  icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
-                  onPressed: () => setState(() => _obscure = !_obscure),
+                showStrength: false,
+                onValidChanged: (valid) {
+                  if (valid != _passwordValid) {
+                    setState(() => _passwordValid = valid);
+                  }
+                },
+              ),
+
+              // Forgot password link
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => context.push(AppRoutes.forgotPassword),
+                  child: const Text('Forgot password?'),
                 ),
               ),
-              const SizedBox(height: AppSpacing.xl),
-              AppButton(
-                label: 'Sign in',
-                loading: state.loading,
-                onPressed: state.loading ? null : _submit,
-              ),
+
               const SizedBox(height: AppSpacing.md),
+
+              // Submit button (disabled if form invalid)
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: _canSubmit ? _submit : null,
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 52),
+                  ),
+                  child: isLoading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text('Sign in'),
+                ),
+              ),
+
+              const SizedBox(height: AppSpacing.lg),
+
+              // Register link
+              Center(
+                child: TextButton(
+                  onPressed: () => context.push(AppRoutes.register),
+                  child: const Text('Create a new account'),
+                ),
+              ),
+
+              const SizedBox(height: AppSpacing.md),
+
+              // Skip for testing
               Center(
                 child: TextButton(
                   onPressed: () => context.go(AppRoutes.onboarding),
-                  child: const Text('Create a new account'),
+                  child: Text(
+                    'Continue without account',
+                    style: TextStyle(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                      fontSize: 12,
+                    ),
+                  ),
                 ),
               ),
             ],

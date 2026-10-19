@@ -11,6 +11,7 @@ import '../../features/admin/presentation/screens/admin_document_detail_screen.d
 import '../../features/admin/presentation/screens/admin_moderation_screen.dart';
 import '../../features/ai/presentation/screens/chat_screen.dart';
 import '../../features/auth/presentation/login_screen.dart';
+import '../../features/auth/presentation/register_screen.dart';
 import '../../features/documents/presentation/screens/documents_home_screen.dart';
 import '../../features/documents/presentation/screens/my_contributions_screen.dart';
 import '../../features/documents/presentation/screens/upload_description_screen.dart';
@@ -48,6 +49,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.splash,
         name: 'splash',
         builder: (_, __) => const SplashScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.forgotPassword,
+        name: 'forgotPassword',
+        builder: (_, __) => const _ForgotPasswordPlaceholder(),
+      ),
+      GoRoute(
+        path: AppRoutes.register,
+        name: 'register',
+        builder: (_, __) => const RegisterScreen(),
       ),
       GoRoute(
         path: AppRoutes.login,
@@ -260,3 +271,25 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     ),
   );
 });
+
+
+class _ForgotPasswordPlaceholder extends StatelessWidget {
+  const _ForgotPasswordPlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Forgot password')),
+      body: const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text(
+            'Reset password coming soon.\n'
+            'Contact support: support@mindora.dev',
+            textAlign: TextAlign.center,
+          ),
+        ),
+      ),
+    );
+  }
+}
