@@ -6,6 +6,7 @@ import '../../../../core/design/tokens/app_spacing.dart';
 import '../../../../core/design/widgets/widgets.dart';
 import '../../data/mock_exam_providers.dart';
 import '../../domain/mock_exam_models.dart';
+import '../../../../core/design/widgets/celebration.dart';
 
 class MockExamResultsScreen extends ConsumerWidget {
   const MockExamResultsScreen({super.key, required this.examId});
@@ -49,6 +50,7 @@ class _Body extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+
     final theme = Theme.of(context);
     final exam = results.exam;
     final score = exam.score ?? 0;

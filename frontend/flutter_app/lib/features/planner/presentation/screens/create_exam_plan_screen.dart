@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../../../core/design/tokens/app_spacing.dart';
 import '../../../../core/design/widgets/widgets.dart';
 import '../../data/planner_providers.dart';
+import '../../../../core/design/widgets/celebration.dart';
 
 class CreateExamPlanScreen extends ConsumerStatefulWidget {
   const CreateExamPlanScreen({super.key});
@@ -56,6 +57,7 @@ class _CreateExamPlanScreenState extends ConsumerState<CreateExamPlanScreen> {
           );
       if (!mounted) return;
       ref.invalidate(plansListProvider);
+      showCelebration(context);
       context.go('/planner/plans/${plan.id}');
     } catch (_) {
       if (!mounted) return;
