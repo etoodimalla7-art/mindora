@@ -39,6 +39,9 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
     if (user != null) {
       if (user.isAdmin) {
         context.go(AppRoutes.adminDashboard);
+      } else if (!user.hasCompletedOnboarding) {
+        // User exists but hasn't finished onboarding → continue
+        context.go(AppRoutes.onboarding);
       } else {
         context.go(AppRoutes.home);
       }

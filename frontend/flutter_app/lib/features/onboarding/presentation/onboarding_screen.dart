@@ -188,15 +188,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       return;
     }
 
-    // Validate account fields on the final step.
-    if (_email.text.trim().isEmpty || _password.text.length < 8) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter an email and a password with at least 8 characters.'),
-        ),
-      );
-      return;
-    }
+
 
     setState(() => _submitting = true);
     try {
@@ -438,11 +430,15 @@ class _ChoiceList extends ConsumerWidget {
     required this.options,
     required this.selected,
     required this.onSelected,
+    this.multiSelect = false,
+    this.selectedList = const [],
   });
 
   final List<(String value, String label, String? sub)> options;
   final String? selected;
   final void Function(String value) onSelected;
+  final bool multiSelect;
+  final List<String> selectedList;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -451,10 +447,14 @@ class _ChoiceList extends ConsumerWidget {
       separatorBuilder: (_, __) => const SizedBox(height: 12),
       itemBuilder: (_, i) {
         final (value, label, sub) = options[i];
+        final isSelected = multiSelect
+            ? selectedList.contains(value)
+            : selected == value;
+
         return _Tile(
           title: label,
           subtitle: sub,
-          selected: selected == value,
+          selected: isSelected,
           onTap: () => onSelected(value),
         );
       },
@@ -534,30 +534,29 @@ class _StepLevel extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final draft = ref.watch(onboardingProvider);
     final ctrl = ref.read(onboardingProvider.notifier);
-    final sys = draft.educationSystem;
+    final isAnglophone = draft.educationSystem == 'anglophone';
 
-    final options = <(String, String, String?)>[
-      if (sys == 'GCE') ...[
-        ('ORDINARY_LEVEL', 'GCE Ordinary Level', null),
-        ('ADVANCED_LEVEL', 'GCE Advanced Level', null),
-        ('HND', 'HND', null),
-      ] else if (sys == 'FRANCOPHONE') ...[
-        ('BEPC', 'BEPC', null),
-        ('PROBATOIRE', 'Probatoire', null),
-        ('BACCALAUREAT', 'Baccalauréat', null),
-        ('BTS', 'BTS', null),
-      ] else ...[
-        ('SECONDARY', 'Secondary', null),
-        ('UNIVERSITY', 'University', null),
-      ],
-      ('LICENCE', 'Licence', null),
-      ('MASTER', 'Master', null),
-    ];
+    final options = isAnglophone
+        ? const [
+            ('gce_o', 'GCE Ordinary Level'),
+            ('gce_a', 'GCE Advanced Level'),
+            ('hnd', 'HND'),
+            ('bachelor', 'Bachelor'),
+            ('master', 'Master'),
+          ]
+        : const [
+            ('bepc', 'BEPC'),
+            ('probatoire', 'Probatoire'),
+            ('bac', 'Baccalauréat'),
+            ('bts', 'BTS'),
+            ('licence', 'Licence'),
+            ('master_fr', 'Master'),
+          ];
 
     return _ChoiceList(
-      options: options,
+      options: options.map((o) => (o.$1, o.$2, '')).toList(),
       selected: draft.level,
-      onSelected: (v) => ctrl.update(draft.copyWith(level: v)),
+      onSelected: (val) => ctrl.update(draft.copyWith(level: val)),
     );
   }
 }
@@ -600,44 +599,100 @@ class _StepProgramState extends ConsumerState<_StepProgram> {
   }
 }
 
-class _StepSubjects extends ConsumerWidget {
-  static const _all = [
-    'Mathematics',
-    'Physics',
-    'Chemistry',
-    'Biology',
-    'Computer Science',
-    'Economics',
-    'Accounting',
-    'English',
-    'French',
-    'History',
-    'Geography',
-    'Philosophy',
-  ];
+class _StepSubjects extends ConsumerStatefulWidget {
+  @override
+  ConsumerState<_StepSubjects> createState() => _StepSubjectsState();
+}
+
+class _StepSubjectsState extends ConsumerState<_StepSubjects> {
+  final _customSubject = TextEditingController();
+  bool _showCustomField = false;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  void dispose() {
+    _customSubject.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final draft = ref.watch(onboardingProvider);
     final ctrl = ref.read(onboardingProvider.notifier);
-    final selected = draft.subjects.toSet();
+    final current = List<String>.from(draft.subjects);
 
-    return ListView.separated(
-      itemCount: _all.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
-      itemBuilder: (_, i) {
-        final subject = _all[i];
-        final on = selected.contains(subject);
-        return _Tile(
-          title: subject,
-          selected: on,
-          onTap: () {
-            final next = {...selected};
-            on ? next.remove(subject) : next.add(subject);
-            ctrl.update(draft.copyWith(subjects: next.toList()));
-          },
-        );
-      },
+    return Column(
+      children: [
+        Expanded(
+          child: _ChoiceList(
+            options: const [
+              ('mathematics', 'Mathematics', ''),
+              ('physics', 'Physics', ''),
+              ('chemistry', 'Chemistry', ''),
+              ('biology', 'Biology', ''),
+              ('computer_science', 'Computer Science', ''),
+              ('economics', 'Economics', ''),
+              ('accounting', 'Accounting', ''),
+              ('english', 'English', ''),
+              ('french', 'French', ''),
+              ('history', 'History', ''),
+              ('geography', 'Geography', ''),
+            ],
+            selected: null, // multiple
+            onSelected: (val) {
+              if (current.contains(val)) {
+                current.remove(val);
+              } else {
+                current.add(val);
+              }
+              ctrl.update(draft.copyWith(subjects: current));
+            },
+            multiSelect: true,
+            selectedList: current,
+          ),
+        ),
+        const SizedBox(height: 8),
+        if (_showCustomField)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _customSubject,
+                    decoration: const InputDecoration(
+                      hintText: 'Type your subject',
+                    ),
+                    onSubmitted: (val) {
+                      if (val.isNotEmpty) {
+                        current.add(val);
+                        ctrl.update(draft.copyWith(subjects: current));
+                        _customSubject.clear();
+                        setState(() => _showCustomField = false);
+                      }
+                    },
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.check),
+                  onPressed: () {
+                    if (_customSubject.text.isNotEmpty) {
+                      current.add(_customSubject.text);
+                      ctrl.update(draft.copyWith(subjects: current));
+                      _customSubject.clear();
+                      setState(() => _showCustomField = false);
+                    }
+                  },
+                ),
+              ],
+            ),
+          )
+        else
+          TextButton(
+            onPressed: () => setState(() => _showCustomField = true),
+            child: const Text('+ Other subject'),
+          ),
+        const SizedBox(height: 8),
+      ],
     );
   }
 }

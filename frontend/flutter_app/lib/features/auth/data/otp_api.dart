@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 /// Client for OTP endpoints.
 class OtpApi {
@@ -15,6 +16,9 @@ class OtpApi {
       'email': email,
       'purpose': purpose,
     });
+    // Dev hint: in dev (SMTP not configured), the code is logged server-side
+    // Check your backend terminal: tail -f /tmp/uvicorn.log | grep "verification code"
+    debugPrint('[OTP] Code sent to $email (check backend logs in dev)');
   }
 
   /// Verify the code. Returns is_verified from response.

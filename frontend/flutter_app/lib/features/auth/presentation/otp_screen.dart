@@ -132,7 +132,9 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
         if (user != null && user.isAdmin) {
           context.go(AppRoutes.adminDashboard);
         } else {
-          context.go(AppRoutes.home);
+          // New user flow: go through onboarding to collect education profile
+          // (the OnboardingScreen handles both new registration and profile completion)
+          context.go(AppRoutes.onboarding);
         }
       } else {
         setState(() => _error = 'Invalid code. Please try again.');
@@ -181,7 +183,15 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.pop(),
+          // Use canPop() to avoid "nothing to pop" on direct entry
+          onPressed: () {
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              // If arrived via direct link (no history), go to login
+              context.go(AppRoutes.login);
+            }
+          },
         ),
       ),
       body: SafeArea(

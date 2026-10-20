@@ -48,9 +48,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
     if (ok) {
       final authState = ref.read(authControllerProvider);
-      final isAdmin = authState.session?.user.isAdmin == true;
-      if (isAdmin) {
+      final user = authState.session?.user;
+      if (user == null) return;
+      if (user.isAdmin) {
         context.go(AppRoutes.adminDashboard);
+      } else if (!user.hasCompletedOnboarding) {
+        context.go(AppRoutes.onboarding);
       } else {
         context.go(AppRoutes.home);
       }
