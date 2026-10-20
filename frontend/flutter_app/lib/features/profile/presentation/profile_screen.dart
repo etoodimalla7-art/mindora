@@ -47,9 +47,32 @@ class ProfileScreen extends ConsumerWidget {
                     size: 80,
                   ),
                   const SizedBox(height: AppSpacing.md),
-                  Text(
-                    user.fullName ?? 'Student',
-                    style: theme.textTheme.titleLarge,
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        user.fullName ?? 'Student',
+                        style: theme.textTheme.titleLarge,
+                      ),
+                      if (!user.isVerified) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.orange.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text(
+                            'Unverified',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.orange,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                   const SizedBox(height: 2),
                   Text(user.email, style: theme.textTheme.bodySmall),
@@ -101,6 +124,24 @@ class ProfileScreen extends ConsumerWidget {
 
             // Account
             Text('Account', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+
+            // Verify email banner (only if not verified)
+            if (!user.isVerified) ...[
+              const SizedBox(height: AppSpacing.md),
+              AppSurface(
+                padding: EdgeInsets.zero,
+                child: AppListTile(
+                  title: 'Verify your email',
+                  subtitle: 'Get full access and secure your account',
+                  leadingIcon: Icons.mark_email_unread_outlined,
+                  showChevron: true,
+                  onTap: () => context.push(
+                    '${AppRoutes.verifyEmail}?email=${Uri.encodeComponent(user.email)}&purpose=verify_email',
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: AppSpacing.md),
             const SizedBox(height: AppSpacing.md),
             AppSurface(
               padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),

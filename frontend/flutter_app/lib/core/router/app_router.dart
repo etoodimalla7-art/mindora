@@ -12,6 +12,7 @@ import '../../features/admin/presentation/screens/admin_moderation_screen.dart';
 import '../../features/ai/presentation/screens/chat_screen.dart';
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/register_screen.dart';
+import '../../features/auth/presentation/otp_screen.dart';
 import '../../features/documents/presentation/screens/documents_home_screen.dart';
 import '../../features/documents/presentation/screens/my_contributions_screen.dart';
 import '../../features/documents/presentation/screens/upload_description_screen.dart';
@@ -49,6 +50,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.splash,
         name: 'splash',
         builder: (_, __) => const SplashScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.verifyEmail,
+        name: 'verifyEmail',
+        builder: (context, state) {
+          final email = (state.uri.queryParameters['email'] ?? '').toString();
+          final purpose =
+              (state.uri.queryParameters['purpose'] ?? 'verify_email').toString();
+          return OtpScreen(email: email, purpose: purpose);
+        },
       ),
       GoRoute(
         path: AppRoutes.forgotPassword,

@@ -79,7 +79,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     setState(() => _submitting = false);
 
     if (ok) {
-      context.go(AppRoutes.onboarding);
+      context.go('${AppRoutes.verifyEmail}?email=${Uri.encodeComponent(_email.text.trim())}&purpose=verify_email');
     } else {
       final err = ref.read(authControllerProvider).error ?? 'Registration failed.';
       ScaffoldMessenger.of(context).showSnackBar(
