@@ -91,6 +91,24 @@ class Settings(BaseSettings):
     FCM_SERVICE_ACCOUNT_PATH: str = ""
     FCM_LEGACY_SERVER_KEY: str = ""
 
+    # ---------- Email (OTP + notifications) ----------
+    EMAIL_PROVIDER: Literal["none", "smtp", "resend"] = "smtp"
+    EMAIL_FROM: str = "MINDORA <noreply@mindora.dev>"
+
+    # SMTP (Gmail dev / any SMTP)
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASS: str = ""
+
+    # Resend (production)
+    RESEND_API_KEY: str = ""
+
+    # OTP config
+    OTP_EXPIRES_MINUTES: int = 10
+    OTP_MAX_ATTEMPTS: int = 5
+    OTP_RATE_LIMIT_SECONDS: int = 60
+
     # ---------- Payments ----------
     PAYMENT_PROVIDER: Literal["none", "flutterwave", "stripe", "campay"] = "flutterwave"
     PAYMENT_REDIRECT_SUCCESS_URL: str = (
