@@ -10,6 +10,7 @@ from app.models.document import (
 from app.models.document_chunk import DocumentChunk
 from app.models.mock_exam import MockAnswer, MockExam, MockQuestion
 from app.models.otp_code import OTPCode
+from app.models.flashcard import FlashcardDeck, Flashcard
 from app.models.notification import (
     Device,
     Notification,
@@ -46,6 +47,8 @@ __all__ = [
     "Payment",
     "Device",
     "OTPCode",
+    "FlashcardDeck",
+    "Flashcard",
     "Notification",
     "NotificationPreference",
 ]

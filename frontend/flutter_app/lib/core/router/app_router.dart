@@ -14,6 +14,8 @@ import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/register_screen.dart';
 import '../../features/auth/presentation/otp_screen.dart';
 import '../../features/documents/presentation/screens/documents_home_screen.dart';
+import '../../features/flashcards/presentation/screens/flashcards_screen.dart';
+import '../../features/flashcards/presentation/screens/review_screen.dart';
 import '../../features/documents/presentation/screens/my_contributions_screen.dart';
 import '../../features/documents/presentation/screens/upload_description_screen.dart';
 import '../../features/documents/presentation/screens/upload_metadata_screen.dart';
@@ -46,6 +48,21 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     initialLocation: AppRoutes.splash,
     debugLogDiagnostics: false,
     routes: [
+      GoRoute(
+        path: AppRoutes.flashcards,
+        name: 'flashcards',
+        builder: (_, __) => const FlashcardsScreen(),
+        routes: [
+          GoRoute(
+            path: 'decks/:deckId',
+            name: 'reviewDeck',
+            builder: (context, state) {
+              final deckId = state.pathParameters['deckId']!;
+              return ReviewScreen(deckId: deckId);
+            },
+          ),
+        ],
+      ),
       GoRoute(
         path: AppRoutes.splash,
         name: 'splash',

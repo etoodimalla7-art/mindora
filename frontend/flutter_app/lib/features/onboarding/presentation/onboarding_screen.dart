@@ -182,6 +182,25 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     super.dispose();
   }
 
+  bool get _isCurrentStepValid {
+    final draft = ref.read(onboardingProvider);
+    final step = _visibleSteps[_index];
+    switch (step) {
+      case _Step.language: return draft.languageCode.isNotEmpty;
+      case _Step.country: return draft.countryCode.isNotEmpty;
+      case _Step.educationSystem: return draft.educationSystem != null;
+      case _Step.level: return draft.level != null;
+      case _Step.program: return true; // optional
+      case _Step.subjects: return draft.subjects.isNotEmpty;
+      case _Step.goal: return draft.goal != null;
+      case _Step.examDate: return true; // optional
+      case _Step.studyTimes: return true; // optional
+      case _Step.notifications: return true; // toggle
+      case _Step.personalize: return draft.explanationStyle != null;
+      case _Step.done: return true;
+    }
+  }
+
   void _next() async {
     if (_index < _visibleSteps.length - 1) {
       setState(() => _index++);
@@ -332,7 +351,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               AppButton(
                 label: _index == _visibleSteps.length - 1 ? s.finish : s.continueLabel,
                 loading: _submitting,
-                onPressed: _submitting ? null : _next,
+                onPressed: (_submitting || !_isCurrentStepValid) ? null : _next,
               ),
             ],
           ),
@@ -520,7 +539,7 @@ class _StepEducationSystem extends ConsumerWidget {
     final ctrl = ref.read(onboardingProvider.notifier);
     return _ChoiceList(
       options: const [
-        ('GCE', 'GCE', 'Anglophone system'),
+        ('Anglophone', 'Anglophone', 'Anglophone system'),
         ('FRANCOPHONE', 'Francophone', 'Système francophone'),
       ],
       selected: draft.educationSystem,

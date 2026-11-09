@@ -13,6 +13,7 @@ class AppRoutes {
   static const String ai = '/ai';
   static const String planner = '/planner';
   static const String learn = '/learn';
+  static const String flashcards = '/flashcards';
   static const String profile = '/profile';
 
   static const String plannerCreate = '/planner/create';
