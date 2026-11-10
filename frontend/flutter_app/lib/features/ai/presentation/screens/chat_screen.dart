@@ -6,7 +6,7 @@ import '../../data/chat_providers.dart';
 import '../widgets/chat_bubble.dart';
 import 'conversations_drawer.dart';
 import '../../../../core/design/widgets/mindora_app_bar.dart';
-import '../../../../core/design/widgets/skeleton_loader.dart';
+import '../../../../core/voice/voice_input_button.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key});
@@ -122,6 +122,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         isDense: true,
                       ),
                     ),
+                  ),
+                  VoiceInputButton(
+                    onTranscribed: (text) {
+                      _input.text = text;
+                      _input.selection = TextSelection.fromPosition(
+                        TextPosition(offset: text.length),
+                      );
+                    },
                   ),
                   const SizedBox(width: AppSpacing.sm),
                   IconButton.filled(

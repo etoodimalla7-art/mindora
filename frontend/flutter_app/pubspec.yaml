@@ -51,6 +51,10 @@ dependencies:
 
   cupertino_icons: ^1.0.8
 
+  # Voice (STT) - Phase 11
+  speech_to_text: ^7.0.0
+  permission_handler: ^11.3.1
+
   # Auth
 
   # Auth

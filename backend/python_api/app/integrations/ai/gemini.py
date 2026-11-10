@@ -65,6 +65,10 @@ class GeminiChatProvider:
     # ---------- Non-streaming ----------
 
     async def chat(
+        # TODO: support multimodal (image_base64) in Phase 11
+        # For now, images are ignored by Gemini provider.
+        # The user message content already includes the transcription.
+
         self,
         messages: list[ChatMessage],
         *,
