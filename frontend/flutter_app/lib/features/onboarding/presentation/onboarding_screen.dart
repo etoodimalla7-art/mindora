@@ -9,7 +9,6 @@ import '../../../core/locale/locale_provider.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/router/routes.dart';
 import '../../../l10n/app_strings.dart';
-import '../../auth/presentation/auth_controller.dart';
 
 // =============================================================
 // Draft state
@@ -212,25 +211,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     setState(() => _submitting = true);
     try {
       final draft = ref.read(onboardingProvider);
-
-      // 1. Create the account.
-      final auth = ref.read(authControllerProvider.notifier);
-      final ok = await auth.register(
-        email: _email.text.trim(),
-        password: _password.text,
-        fullName: _fullName.text.trim().isEmpty ? null : _fullName.text.trim(),
-        preferredLanguage: draft.languageCode,
-        countryCode: draft.countryCode,
-      );
-
-      if (!ok) {
-        final err = ref.read(authControllerProvider).error ?? 'Registration failed.';
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
-        return;
-      }
-
-      // 2. Save the education profile now that we have a token.
+      // L'utilisateur est déjà connecté (via /register ou /login)
+      // On sauvegarde juste le profil éducatif.
       await _submit(draft);
 
       if (!mounted) return;
@@ -238,11 +220,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('We could not save your preferences. Please try again.'),
-        ),
+        const SnackBar(content: Text('Erreur lors de la sauvegarde du profil.')),
       );
-    } finally {
+    }
+ finally {
       if (mounted) setState(() => _submitting = false);
     }
   }
@@ -551,7 +532,6 @@ class _StepLevel extends ConsumerWidget {
     final ctrl = ref.read(onboardingProvider.notifier);
     final isAnglophone = draft.educationSystem == 'anglophone';
 
-    // Liste des options selon le système
     final options = isAnglophone
         ? const [
             ('gce_o', 'GCE Ordinary Level', ''),
