@@ -326,10 +326,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  TextButton(
-                    onPressed: () => context.go(AppRoutes.home),
-                    child: Text(s.skip),
-                  ),
                 ],
               ),
               const SizedBox(height: AppSpacing.xxxl),
