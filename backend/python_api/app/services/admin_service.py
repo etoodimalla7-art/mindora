@@ -283,6 +283,13 @@ class AdminService:
         await self.session.delete(paper)
         await self.session.commit()
 
+    async def get_paper_file(self, paper_id: uuid.UUID) -> tuple[bytes, str, str]:
+        """Return (file_data, file_name, mime_type) for download."""
+        paper = await self.session.get(Paper, paper_id)
+        if not paper:
+            raise NotFoundError("Paper not found.")
+        return paper.file_data, paper.file_name, paper.mime_type
+
     def _to_detail(self, p: Paper) -> PaperDetail:
         return PaperDetail(
             id=p.id,

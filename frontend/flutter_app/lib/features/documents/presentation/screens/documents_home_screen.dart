@@ -21,6 +21,18 @@ class DocumentsHomeScreen extends ConsumerWidget {
         child: ListView(
           padding: const EdgeInsets.all(AppSpacing.xl),
           children: [
+            // Past Papers card
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.description_outlined, color: Colors.red),
+                title: const Text('Past Papers'),
+                subtitle: const Text('Télécharge les annales par matière'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push('/past-papers'),
+              ),
+            ),
+            const SizedBox(height: 12),
+
             // Credits summary
             creditsAsync.when(
               loading: () => const AppSkeleton(height: 96),
