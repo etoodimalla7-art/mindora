@@ -551,25 +551,26 @@ class _StepLevel extends ConsumerWidget {
     final ctrl = ref.read(onboardingProvider.notifier);
     final isAnglophone = draft.educationSystem == 'anglophone';
 
+    // Liste des options selon le système
     final options = isAnglophone
         ? const [
-            ('gce_o', 'GCE Ordinary Level'),
-            ('gce_a', 'GCE Advanced Level'),
-            ('hnd', 'HND'),
-            ('bachelor', 'Bachelor'),
-            ('master', 'Master'),
+            ('gce_o', 'GCE Ordinary Level', ''),
+            ('gce_a', 'GCE Advanced Level', ''),
+            ('hnd', 'HND', ''),
+            ('bachelor', 'Bachelor', ''),
+            ('master', 'Master', ''),
           ]
         : const [
-            ('bepc', 'BEPC'),
-            ('probatoire', 'Probatoire'),
-            ('bac', 'Baccalauréat'),
-            ('bts', 'BTS'),
-            ('licence', 'Licence'),
-            ('master_fr', 'Master'),
+            ('bepc', 'BEPC', ''),
+            ('probatoire', 'Probatoire', ''),
+            ('bac', 'Baccalauréat', ''),
+            ('bts', 'BTS', ''),
+            ('licence', 'Licence', ''),
+            ('master_fr', 'Master', ''),
           ];
 
     return _ChoiceList(
-      options: options.map((o) => (o.$1, o.$2, '')).toList(),
+      options: options,
       selected: draft.level,
       onSelected: (val) => ctrl.update(draft.copyWith(level: val)),
     );
@@ -652,7 +653,7 @@ class _StepSubjectsState extends ConsumerState<_StepSubjects> {
               ('history', 'History', ''),
               ('geography', 'Geography', ''),
             ],
-            selected: null, // multiple
+            selected: null,
             onSelected: (val) {
               if (current.contains(val)) {
                 current.remove(val);
@@ -678,7 +679,7 @@ class _StepSubjectsState extends ConsumerState<_StepSubjects> {
                       hintText: 'Type your subject',
                     ),
                     onSubmitted: (val) {
-                      if (val.isNotEmpty) {
+                      if (val.isNotEmpty && !current.contains(val)) {
                         current.add(val);
                         ctrl.update(draft.copyWith(subjects: current));
                         _customSubject.clear();
@@ -690,8 +691,9 @@ class _StepSubjectsState extends ConsumerState<_StepSubjects> {
                 IconButton(
                   icon: const Icon(Icons.check),
                   onPressed: () {
-                    if (_customSubject.text.isNotEmpty) {
-                      current.add(_customSubject.text);
+                    final val = _customSubject.text.trim();
+                    if (val.isNotEmpty && !current.contains(val)) {
+                      current.add(val);
                       ctrl.update(draft.copyWith(subjects: current));
                       _customSubject.clear();
                       setState(() => _showCustomField = false);
@@ -711,6 +713,7 @@ class _StepSubjectsState extends ConsumerState<_StepSubjects> {
     );
   }
 }
+
 
 class _StepGoal extends ConsumerWidget {
   @override
