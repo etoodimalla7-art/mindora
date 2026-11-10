@@ -41,14 +41,11 @@ class OrchestratorResult:
     reasoning: str | None = None
 
 
-# Keywords that strongly suggest we should search the user's documents.
 _COURSE_RAG_KEYWORDS = (
-    # English
     "my course", "my notes", "my document", "my lesson", "my textbook",
     "my material", "my class", "my syllabus", "the chapter", "this chapter",
     "the lesson", "uploaded", "what does my", "in my course", "from my course",
     "according to my", "based on my", "in the notes", "in the document",
-    # French
     "mon cours", "mes notes", "mon document", "ma leçon", "mon manuel",
     "ma matière", "ma classe", "le chapitre", "ce chapitre", "la leçon",
     "d'après mon", "selon mon", "dans mes notes", "dans le document",
@@ -94,13 +91,9 @@ class Orchestrator:
             self.tools["course_rag"] = CourseRagTool(session)
 
     async def run(self, ctx: ToolContext) -> OrchestratorResult:
-        # 1. Heuristic classification (deterministic, no LLM call).
         heuristic_tools = self._heuristic_tools(ctx.message)
-
-        # 2. LLM classification (may enrich or confirm).
         llm_decision = await self._classify(ctx.message)
 
-        # 3. Merge: union of tools, filtered by availability.
         selected: list[str] = []
         for name in heuristic_tools + llm_decision.get("tools", []):
             if name in self.tools and name not in selected:
@@ -117,7 +110,6 @@ class Orchestrator:
             llm_decision.get("tools"),
         )
 
-        # 4. Execute each tool.
         results: list[ToolResult] = []
         for name in selected:
             tool = self.tools[name]
@@ -129,7 +121,6 @@ class Orchestrator:
                 logger.exception("tool_execution_failed name=%s", name)
                 results.append(ToolResult(text="", tool_name=name, error=str(exc)))
 
-        # 5. Compose.
         composed, model, provider, usage = await self._compose(ctx, results)
 
         tools_used = [
@@ -150,8 +141,6 @@ class Orchestrator:
             reasoning=llm_decision.get("reasoning"),
         )
 
-    # ---------- Heuristic classifier ----------
-
     @staticmethod
     def _heuristic_tools(message: str) -> list[str]:
         tools: list[str] = ["general_chat"]
@@ -160,13 +149,10 @@ class Orchestrator:
         if _looks_like_arithmetic(message):
             tools.insert(0, "calculator")
 
-        # Any course-RAG keyword → force course_rag.
         if any(kw in low for kw in _COURSE_RAG_KEYWORDS):
             tools.append("course_rag")
 
         return tools
-
-    # ---------- LLM classifier ----------
 
     async def _classify(self, message: str) -> dict[str, Any]:
         provider = get_chat_provider()
@@ -188,8 +174,6 @@ class Orchestrator:
 
         return {"intent": "general", "confidence": 0.5, "tools": [], "reasoning": "llm failed"}
 
-    # ---------- Composition ----------
-
     async def _compose(
         self,
         ctx: ToolContext,
@@ -208,22 +192,18 @@ class Orchestrator:
             None,
         )
 
-        # course_rag is authoritative when it produced text.
         if rag:
             prefix = ""
             if calc:
                 prefix = f"**Computation**\n\n`{calc.text}`\n\n"
             return prefix + rag.text, rag.model, rag.provider, rag.usage
 
-        # Pure general chat.
         if general and not calc:
             return general.text, general.model, general.provider, general.usage
 
-        # Calc only.
         if calc and not general:
             return f"**Computation**\n\n`{calc.text}`", None, None, {}
 
-        # Both calc and general: give the LLM the computed result as ground truth.
         if calc and general:
             provider = get_chat_provider()
             try:
@@ -245,6 +225,8 @@ class Orchestrator:
                                 f"Computed result: {calc.text}\n\n"
                                 "Explain this result step by step."
                             ),
+                            image_base64=ctx.image_base64,
+                            image_mime_type=ctx.image_mime_type,
                         ),
                     ],
                     temperature=0.3,
@@ -272,8 +254,6 @@ class Orchestrator:
             {},
         )
 
-
-# ---------- Helpers ----------
 
 def _safe_json(text: str) -> dict | None:
     if not text:

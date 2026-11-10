@@ -15,7 +15,8 @@ class ToolContext:
     message: str
     history: list[ChatMessage] = field(default_factory=list)
     subject: str | None = None
-    # Tool-specific extras (e.g. document ids for course_rag).
+    image_base64: str | None = None
+    image_mime_type: str | None = None
     extras: dict[str, Any] = field(default_factory=dict)
 
 

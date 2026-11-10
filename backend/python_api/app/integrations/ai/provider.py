@@ -18,6 +18,8 @@ class ChatMessage:
     content: str
     name: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    image_base64: str | None = None
+    image_mime_type: str | None = None
 
 
 @dataclass(slots=True)

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-
 import json
 import logging
 import uuid
@@ -28,8 +27,6 @@ class ChatService:
         self.session = session
         self.orchestrator = Orchestrator(session)
 
-    # ---------- Non-streaming ----------
-
     async def send(
         self,
         user_id: uuid.UUID,
@@ -52,6 +49,8 @@ class ChatService:
             message=payload.message,
             history=[ChatMessage(role=m.role, content=m.content) for m in history],
             subject=conversation.subject,
+            image_base64=payload.image_base64,
+            image_mime_type=payload.image_mime_type,
             extras={"session": self.session},
         )
         result = await self.orchestrator.run(ctx)
@@ -80,21 +79,11 @@ class ChatService:
             usage=result.usage or {},
         )
 
-    # ---------- Streaming ----------
-
     async def send_stream(
         self,
         user_id: uuid.UUID,
         payload: ChatRequest,
     ) -> AsyncIterator[str]:
-        """Yield SSE-formatted chunks with keep-alive + timeout + error recovery.
-
-        Hardening vs previous version:
-        - overall timeout (90s) → emits event:error instead of hanging forever
-        - keep-alive ping every 15s → prevents Render/proxy 60s cut
-        - all exceptions caught → emits event:error, never crashes generator
-        - emits final `done` even on error so client can complete its Completer
-        """
         import time
 
         TIMEOUT_SECONDS = 90
@@ -103,7 +92,6 @@ class ChatService:
         collected_text = ""
 
         try:
-            # Step 1 — conversation + user message
             conversation = await self._get_or_create_conversation(user_id, payload)
             user_msg = Message(
                 conversation_id=conversation.id,
@@ -118,17 +106,18 @@ class ChatService:
                 "meta", {"conversation_id": str(conversation.id)}
             )
 
-            # Step 2 — decide stream vs fallback
-            should_stream = await self._should_stream(payload.message)
+            if payload.image_base64:
+                should_stream = False
+            else:
+                should_stream = await self._should_stream(payload.message)
 
             if not should_stream:
-                # Fallback to non-streaming orchestrator.
-                # Use a SEPARATE session to avoid conflicts with the outer one.
                 from app.db.session import AsyncSessionLocal
 
                 logger.info(
-                    "chat_stream_fallback_start msg_len=%d",
+                    "chat_stream_fallback_start msg_len=%d has_image=%s",
                     len(payload.message),
+                    bool(payload.image_base64),
                 )
 
                 history = await self._recent_history(conversation.id)
@@ -143,13 +132,14 @@ class ChatService:
                                 for m in history
                             ],
                             subject=conversation.subject,
+                            image_base64=payload.image_base64,
+                            image_mime_type=payload.image_mime_type,
                             extras={"session": orch_session},
                         )
                         logger.info("chat_stream_orchestrator_run_start")
-                        # Shorter timeout for the tool fallback (30s)
                         result = await asyncio.wait_for(
                             orch.run(ctx),
-                            timeout=30,
+                            timeout=45,
                         )
                         logger.info(
                             "chat_stream_orchestrator_run_done text_len=%d tools=%s",
@@ -157,7 +147,7 @@ class ChatService:
                             [t.get("name") for t in (result.tools_used or [])],
                         )
                 except asyncio.TimeoutError:
-                    logger.error("chat_stream_orchestrator_timeout_30s")
+                    logger.error("chat_stream_orchestrator_timeout_45s")
                     yield sse_event("error", {
                         "message": "L'analyse de vos documents prend trop de temps. Réessayez."
                     })
@@ -183,7 +173,6 @@ class ChatService:
                     })
                     return
 
-                # Persist assistant message on the OUTER session
                 assistant_msg = Message(
                     conversation_id=conversation.id,
                     role="assistant",
@@ -210,7 +199,6 @@ class ChatService:
                 })
                 return
 
-            # Step 3 — pure streaming path with keep-alive
             history = await self._recent_history(conversation.id)
             provider = get_chat_provider()
             messages = [
@@ -229,13 +217,11 @@ class ChatService:
                         collected_text += token
                         yield sse_event("token", {"text": token})
 
-                    # keep-alive
                     now = time.monotonic()
                     if now - last_ping >= 15:
                         yield sse_ping()
                         last_ping = now
 
-                    # global timeout check
                     if (now - start) >= TIMEOUT_SECONDS:
                         raise asyncio.TimeoutError("Stream exceeded 90s")
 
@@ -245,7 +231,6 @@ class ChatService:
                     "message": "The AI took too long to respond. Please retry."
                 })
 
-            # Persist assistant message even if empty (so history is coherent)
             assistant_msg = Message(
                 conversation_id=conversation.id,
                 role="assistant",
@@ -277,7 +262,6 @@ class ChatService:
                 })
             except Exception:
                 pass
-            # Always emit done so client's Completer resolves
             try:
                 yield sse_event("done", {
                     "message_id": "",
@@ -289,18 +273,11 @@ class ChatService:
             except Exception:
                 pass
 
-
     async def _should_stream(self, message: str) -> bool:
-        """Stream only if the message doesn't need course_rag or calculator.
-
-        Reuses the orchestrator's deterministic heuristic for consistency.
-        """
         from ai.orchestrator import Orchestrator as _O
 
         tools = _O._heuristic_tools(message)
         return tools == ["general_chat"]
-
-    # ---------- Persistence helpers ----------
 
     async def list_conversations(
         self, user_id: uuid.UUID
@@ -372,10 +349,10 @@ def _auto_title(text: str) -> str:
 
 
 def _sse(event: str, data: dict) -> str:
-    """Format a single SSE message."""
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
 async def _iter_with_timeout(iterator, timeout: float):
-    """Wrap an async iterator with an overall timeout."""
     deadline = asyncio.get_event_loop().time() + max(timeout, 1.0)
     async for item in iterator:
         if asyncio.get_event_loop().time() >= deadline:

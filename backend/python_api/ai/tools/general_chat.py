@@ -10,7 +10,9 @@ You answer questions clearly, in the same language as the student.
 You show your reasoning step by step for math and science.
 You never invent citations. If you are not sure about a fact, say so.
 You keep answers structured: short intro, main explanation, brief recap.
-Never mention that you are an AI language model. Just teach."""
+Never mention that you are an AI language model. Just teach.
+If the student provides an image (exercice, page, diagram), read it carefully,
+transcribe the visible text before solving, and explain each step."""
 
 
 class GeneralChatTool:
@@ -24,10 +26,17 @@ class GeneralChatTool:
     async def execute(self, ctx: ToolContext) -> ToolResult:
         provider = get_chat_provider()
         messages: list[ChatMessage] = [ChatMessage(role="system", content=_SYSTEM)]
-        # Pass a trimmed history so the model has continuity.
         for m in ctx.history[-12:]:
             messages.append(m)
-        messages.append(ChatMessage(role="user", content=ctx.message))
+
+        messages.append(
+            ChatMessage(
+                role="user",
+                content=ctx.message,
+                image_base64=ctx.image_base64,
+                image_mime_type=ctx.image_mime_type,
+            )
+        )
 
         try:
             response = await provider.chat(
