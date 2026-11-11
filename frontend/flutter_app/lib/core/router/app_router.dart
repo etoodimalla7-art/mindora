@@ -34,6 +34,8 @@ import '../../features/planner/presentation/screens/planner_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/study_groups/presentation/screens/group_chat_screen.dart';
 import '../../features/study_groups/presentation/screens/group_members_screen.dart';
+import '../../features/direct_messages/presentation/screens/dm_chat_screen.dart';
+import '../../features/direct_messages/presentation/screens/dm_list_screen.dart';
 import '../../features/study_groups/presentation/screens/groups_list_screen.dart';
 import '../../features/subscription/presentation/screens/checkout_screen.dart';
 import '../../features/subscription/presentation/screens/manage_subscription_screen.dart';
@@ -163,6 +165,19 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         name: 'groupMembers',
         builder: (_, state) =>
             GroupMembersScreen(groupId: state.pathParameters['id']!),
+      ),
+
+      // Phase 13.7 — Direct messages
+      GoRoute(
+        path: '/messages',
+        name: 'dmList',
+        builder: (_, __) => const DmListScreen(),
+      ),
+      GoRoute(
+        path: '/messages/:id',
+        name: 'dmChat',
+        builder: (_, state) =>
+            DmChatScreen(conversationId: state.pathParameters['id']!),
       ),
 
       // Admin

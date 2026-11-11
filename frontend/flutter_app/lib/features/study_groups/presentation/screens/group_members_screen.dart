@@ -1,13 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../../core/design/tokens/app_spacing.dart';
+import '../../../direct_messages/data/dm_providers.dart';
 import '../../data/study_group_providers.dart';
 import '../../domain/study_group_models.dart';
 
 class GroupMembersScreen extends ConsumerWidget {
   const GroupMembersScreen({super.key, required this.groupId});
   final String groupId;
+
+  Future<void> _openDm(
+    BuildContext context,
+    WidgetRef ref,
+    StudyGroupMember member,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final router = GoRouter.of(context);
+    try {
+      final conv = await ref.read(dmRepositoryProvider).getOrCreate(member.userId);
+      router.push('/messages/${conv.id}');
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('Erreur : $e')));
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -52,7 +69,10 @@ class GroupMembersScreen extends ConsumerWidget {
             itemCount: members.length,
             separatorBuilder: (_, __) =>
                 const SizedBox(height: AppSpacing.sm),
-            itemBuilder: (_, i) => _MemberTile(member: members[i]),
+            itemBuilder: (_, i) => _MemberTile(
+              member: members[i],
+              onChat: () => _openDm(context, ref, members[i]),
+            ),
           );
         },
       ),
@@ -61,8 +81,9 @@ class GroupMembersScreen extends ConsumerWidget {
 }
 
 class _MemberTile extends StatelessWidget {
-  const _MemberTile({required this.member});
+  const _MemberTile({required this.member, required this.onChat});
   final StudyGroupMember member;
+  final VoidCallback onChat;
 
   @override
   Widget build(BuildContext context) {
@@ -84,20 +105,18 @@ class _MemberTile extends StatelessWidget {
               )
             : null,
       ),
-      title: Text(member.displayName,
-          style: theme.textTheme.titleSmall),
+      title: Text(member.displayName, style: theme.textTheme.titleSmall),
       subtitle: Text(
         'Membre depuis ${_fmtDate(member.joinedAt)}',
         style: theme.textTheme.bodySmall?.copyWith(
           color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
         ),
       ),
-      trailing: Icon(
-        Icons.chat_bubble_outline,
-        size: 20,
-        color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+      trailing: IconButton(
+        icon: const Icon(Icons.chat_bubble_outline),
+        tooltip: 'Message privé',
+        onPressed: onChat,
       ),
-      // TODO 13.7: onTap → open DM with this member
     );
   }
 

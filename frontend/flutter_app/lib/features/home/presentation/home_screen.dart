@@ -252,6 +252,8 @@ class _QuickActions extends StatelessWidget {
           () => router.go('/planner')),
       (Icons.groups_outlined, 'Study groups',
           () => router.push('/groups')),
+      (Icons.chat_bubble_outline, 'Messages',
+          () => router.push('/messages')),
     ];
     return GridView.count(
       crossAxisCount: 2,

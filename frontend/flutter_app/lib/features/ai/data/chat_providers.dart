@@ -122,6 +122,10 @@ class ChatController extends StateNotifier<ChatState> {
 
     final completer = Completer<void>();
 
+    void safeComplete() {
+      if (!completer.isCompleted) completer.complete();
+    }
+
     _sub = _repo
         .streamMessage(
       message: trimmed,
@@ -166,7 +170,7 @@ class ChatController extends StateNotifier<ChatState> {
           }).toList();
           state = state.copyWith(messages: updated, sending: false);
           _ref.invalidate(conversationsProvider);
-          completer.complete();
+          safeComplete();
         } else if (event is ChatErrorEvent) {
           state = state.copyWith(
             messages: state.messages
@@ -175,26 +179,22 @@ class ChatController extends StateNotifier<ChatState> {
             sending: false,
             error: event.message,
           );
-          completer.complete();
+          safeComplete();
         }
       },
       onError: (e) {
-        if (!completer.isCompleted) {
-          state = state.copyWith(
-            messages: state.messages
-                .where((m) => m.id != localAssistantId)
-                .toList(),
-            sending: false,
-            error: 'Connection lost.',
-          );
-          completer.complete();
-        }
+        state = state.copyWith(
+          messages: state.messages
+              .where((m) => m.id != localAssistantId)
+              .toList(),
+          sending: false,
+          error: 'Connection lost.',
+        );
+        safeComplete();
       },
       onDone: () {
-        if (!completer.isCompleted) {
-          state = state.copyWith(sending: false);
-          completer.complete();
-        }
+        state = state.copyWith(sending: false);
+        safeComplete();
       },
       cancelOnError: true,
     );

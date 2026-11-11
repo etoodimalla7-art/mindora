@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../../audio/feedback_service.dart';
 
 enum AppButtonVariant { primary, secondary, ghost, danger }
@@ -23,39 +24,51 @@ class AppButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final child = loading
-        ? const SizedBox(
-            height: 20, width: 20,
+    final child = Row(
+      mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        if (loading)
+          const SizedBox(
+            width: 16,
+            height: 16,
             child: CircularProgressIndicator(strokeWidth: 2),
           )
-        : Row(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (icon != null) ...[
-                Icon(icon, size: 18),
-                const SizedBox(width: 8),
-              ],
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          );
+        else if (icon != null)
+          Icon(icon, size: 18),
+        if (loading || icon != null) const SizedBox(width: 8),
+        if (!loading)
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+      ],
+    );
+
+    // Safe handler — never crash on null onPressed.
+    VoidCallback? handler;
+    if (!loading && onPressed != null) {
+      handler = () {
+        FeedbackService.instance.tap();
+        onPressed!.call();
+      };
+    }
 
     final button = switch (variant) {
-      AppButtonVariant.primary => FilledButton(onPressed: loading ? null : () { FeedbackService.instance.tap(); onPressed!(); }, child: child),
-      AppButtonVariant.secondary => OutlinedButton(onPressed: loading ? null : () { FeedbackService.instance.tap(); onPressed!(); }, child: child),
-      AppButtonVariant.ghost => TextButton(onPressed: loading ? null : () { FeedbackService.instance.tap(); onPressed!(); }, child: child),
+      AppButtonVariant.primary =>
+        FilledButton(onPressed: handler, child: child),
+      AppButtonVariant.secondary =>
+        OutlinedButton(onPressed: handler, child: child),
+      AppButtonVariant.ghost => TextButton(onPressed: handler, child: child),
       AppButtonVariant.danger => FilledButton(
           style: FilledButton.styleFrom(
             backgroundColor: Theme.of(context).colorScheme.error,
             foregroundColor: Theme.of(context).colorScheme.onError,
           ),
-          onPressed: loading ? null : () { FeedbackService.instance.tap(); onPressed!(); },
+          onPressed: handler,
           child: child,
         ),
     };
