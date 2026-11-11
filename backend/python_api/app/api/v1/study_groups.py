@@ -10,6 +10,7 @@ from app.schemas.study_group import (
     GroupMessageCreate,
     GroupMessageOut,
     StudyGroupCreate,
+    StudyGroupMemberOut,
     StudyGroupOut,
 )
 from app.services.study_group_service import StudyGroupService
@@ -34,14 +35,17 @@ async def list_groups(
     exam_system: str | None = Query(default=None, max_length=40),
     exam_level: str | None = Query(default=None, max_length=40),
     search: str | None = Query(default=None, max_length=120),
+    only_mine: bool = Query(default=False),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ) -> list[StudyGroupOut]:
     return await StudyGroupService(session).list_groups(
+        user_id,
         subject=subject,
         exam_system=exam_system,
         exam_level=exam_level,
         search=search,
+        only_mine=only_mine,
         limit=limit,
         offset=offset,
     )
@@ -53,7 +57,7 @@ async def get_group(
     session: SessionDep,
     user_id: CurrentUserId,
 ) -> StudyGroupOut:
-    return await StudyGroupService(session).get_group(group_id)
+    return await StudyGroupService(session).get_group(user_id, group_id)
 
 
 @router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -64,6 +68,15 @@ async def delete_group(
 ) -> Response:
     await StudyGroupService(session).delete_group(user_id, group_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{group_id}/members", response_model=list[StudyGroupMemberOut])
+async def list_members(
+    group_id: uuid.UUID,
+    session: SessionDep,
+    user_id: CurrentUserId,
+) -> list[StudyGroupMemberOut]:
+    return await StudyGroupService(session).list_members(group_id)
 
 
 @router.post("/{group_id}/join", response_model=StudyGroupOut)

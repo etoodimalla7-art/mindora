@@ -11,6 +11,7 @@ class StudyGroup extends Equatable {
     required this.creatorId,
     required this.isPrivate,
     required this.memberCount,
+    this.isMember = false,
     required this.createdAt,
   });
 
@@ -23,6 +24,7 @@ class StudyGroup extends Equatable {
   final String creatorId;
   final bool isPrivate;
   final int memberCount;
+  final bool isMember;
   final DateTime createdAt;
 
   factory StudyGroup.fromJson(Map<String, dynamic> j) => StudyGroup(
@@ -35,6 +37,7 @@ class StudyGroup extends Equatable {
         creatorId: j['creator_id'] as String,
         isPrivate: j['is_private'] as bool? ?? false,
         memberCount: j['member_count'] as int? ?? 0,
+        isMember: j['is_member'] as bool? ?? false,
         createdAt: DateTime.parse(j['created_at'] as String),
       );
 
@@ -70,4 +73,33 @@ class GroupMessage extends Equatable {
 
   @override
   List<Object?> get props => [id];
+}
+
+class StudyGroupMember extends Equatable {
+  const StudyGroupMember({
+    required this.userId,
+    this.fullName,
+    required this.email,
+    this.avatarUrl,
+    required this.joinedAt,
+  });
+
+  final String userId;
+  final String? fullName;
+  final String email;
+  final String? avatarUrl;
+  final DateTime joinedAt;
+
+  String get displayName => fullName?.isNotEmpty == true ? fullName! : email;
+
+  factory StudyGroupMember.fromJson(Map<String, dynamic> j) => StudyGroupMember(
+        userId: j['user_id'] as String,
+        fullName: j['full_name'] as String?,
+        email: j['email'] as String,
+        avatarUrl: j['avatar_url'] as String?,
+        joinedAt: DateTime.parse(j['joined_at'] as String),
+      );
+
+  @override
+  List<Object?> get props => [userId];
 }

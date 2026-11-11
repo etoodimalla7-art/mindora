@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../../core/design/tokens/app_spacing.dart';
 import '../../data/study_group_providers.dart';
@@ -66,7 +67,6 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       (event) {
         if (!mounted) return;
         if (event is GroupSocketMessage) {
-          // Avoid duplicate (WS broadcasts its own sender too)
           if (_messages.any((m) => m.id == event.message.id)) return;
           setState(() {
             _messages.add(event.message);
@@ -80,11 +80,6 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
           });
         } else if (event is GroupSocketError) {
           setState(() => _socketConnected = false);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(event.message)),
-            );
-          }
         }
       },
       onError: (_) {
@@ -119,29 +114,21 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   Future<void> _send() async {
     final text = _input.text.trim();
     if (text.isEmpty || _sending) return;
-
     setState(() => _sending = true);
     _input.clear();
     _scrollToBottom();
-
     try {
-      // REST post → backend persists + broadcasts over WS
       final sent = await ref
           .read(studyGroupRepositoryProvider)
           .postMessage(widget.groupId, text);
-
-      // Add locally immediately so the sender sees it without waiting
-      // for the WS echo (WS handler dedups by id).
       if (mounted && !_messages.any((m) => m.id == sent.id)) {
         setState(() => _messages.add(sent));
         _scrollToBottom();
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Envoi impossible : $e')),
-        );
-        // Restore the text so the user doesn't lose it
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Envoi impossible : $e')));
         _input.text = text;
       }
     } finally {
@@ -182,6 +169,13 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
           ),
           orElse: () => const Text('Groupe'),
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Voir les membres',
+            icon: const Icon(Icons.people_outline),
+            onPressed: () => context.push('/groups/${widget.groupId}/members'),
+          ),
+        ],
       ),
       body: SafeArea(
         child: Column(

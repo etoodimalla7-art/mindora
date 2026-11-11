@@ -30,8 +30,19 @@ class _GroupsListScreenState extends ConsumerState<GroupsListScreen> {
       showDragHandle: true,
       builder: (_) => const CreateGroupSheet(),
     );
-    if (created == true) {
+    if (created == true) ref.invalidate(groupsListProvider);
+  }
+
+  Future<void> _joinGroup(StudyGroup group) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(studyGroupRepositoryProvider).joinGroup(group.id);
       ref.invalidate(groupsListProvider);
+      messenger.showSnackBar(
+        SnackBar(content: Text('Tu as rejoint « ${group.name} »')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('Erreur : $e')));
     }
   }
 
@@ -54,7 +65,6 @@ class _GroupsListScreenState extends ConsumerState<GroupsListScreen> {
       ),
       body: Column(
         children: [
-          // Search + filter bar
           Padding(
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.md, AppSpacing.sm, AppSpacing.md, AppSpacing.sm,
@@ -94,10 +104,7 @@ class _GroupsListScreenState extends ConsumerState<GroupsListScreen> {
               ),
               data: (groups) {
                 if (groups.isEmpty) {
-                  return _EmptyState(
-                    onCreate: _showCreateSheet,
-                    theme: theme,
-                  );
+                  return _EmptyState(onCreate: _showCreateSheet, theme: theme);
                 }
                 return RefreshIndicator(
                   onRefresh: () async => ref.invalidate(groupsListProvider),
@@ -106,7 +113,13 @@ class _GroupsListScreenState extends ConsumerState<GroupsListScreen> {
                     itemCount: groups.length,
                     separatorBuilder: (_, __) =>
                         const SizedBox(height: AppSpacing.sm),
-                    itemBuilder: (_, i) => _GroupCard(group: groups[i]),
+                    itemBuilder: (_, i) {
+                      final g = groups[i];
+                      return _GroupCard(
+                        group: g,
+                        onJoin: g.isMember ? null : () => _joinGroup(g),
+                      );
+                    },
                   ),
                 );
               },
@@ -119,8 +132,9 @@ class _GroupsListScreenState extends ConsumerState<GroupsListScreen> {
 }
 
 class _GroupCard extends StatelessWidget {
-  const _GroupCard({required this.group});
+  const _GroupCard({required this.group, this.onJoin});
   final StudyGroup group;
+  final VoidCallback? onJoin;
 
   @override
   Widget build(BuildContext context) {
@@ -144,11 +158,15 @@ class _GroupCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  Icon(
-                    group.isPrivate ? Icons.lock_outline : Icons.public,
-                    size: 16,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                  ),
+                  if (group.isMember)
+                    Icon(Icons.check_circle, size: 18,
+                        color: theme.colorScheme.primary)
+                  else
+                    Icon(
+                      group.isPrivate ? Icons.lock_outline : Icons.public,
+                      size: 16,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                    ),
                 ],
               ),
               if (group.description != null &&
@@ -189,6 +207,20 @@ class _GroupCard extends StatelessWidget {
                       color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                     ),
                   ),
+                  const Spacer(),
+                  if (onJoin != null)
+                    FilledButton.tonal(
+                      onPressed: onJoin,
+                      child: const Text('Rejoindre'),
+                    )
+                  else
+                    Text(
+                      'Membre',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                 ],
               ),
             ],
@@ -237,11 +269,8 @@ class _EmptyState extends StatelessWidget {
             Icon(Icons.groups_outlined,
                 size: 64, color: theme.colorScheme.primary.withValues(alpha: 0.5)),
             const SizedBox(height: AppSpacing.lg),
-            Text(
-              'Aucun groupe pour l\'instant',
-              style: theme.textTheme.titleMedium,
-              textAlign: TextAlign.center,
-            ),
+            Text('Aucun groupe pour l\'instant',
+                style: theme.textTheme.titleMedium, textAlign: TextAlign.center),
             const SizedBox(height: AppSpacing.sm),
             Text(
               'Sois le premier à créer un groupe d\'étude\npour ta filière.',

@@ -27,9 +27,19 @@ class StudyGroupOut(BaseModel):
     is_private: bool
     member_count: int
     created_at: datetime
+    # Set when the caller is a member (filled by router/service)
+    is_member: bool = False
 
     class Config:
         from_attributes = True
+
+
+class StudyGroupMemberOut(BaseModel):
+    user_id: uuid.UUID
+    full_name: str | None
+    email: str
+    avatar_url: str | None
+    joined_at: datetime
 
 
 class GroupMessageCreate(BaseModel):
@@ -42,7 +52,6 @@ class GroupMessageOut(BaseModel):
     user_id: uuid.UUID
     content: str
     created_at: datetime
-    # Flattened user info for the UI
     user_name: str | None = None
 
     class Config:

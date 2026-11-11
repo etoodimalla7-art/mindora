@@ -97,6 +97,13 @@ class StudyGroupRepository {
         .toList();
   }
 
+  Future<List<StudyGroupMember>> listMembers(String groupId) async {
+    final r = await _dio.get('/study-groups/$groupId/members');
+    return (r.data as List)
+        .map((e) => StudyGroupMember.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
   Future<GroupMessage> postMessage(String groupId, String content) async {
     final r = await _dio.post(
       '/study-groups/$groupId/messages',

@@ -33,6 +33,7 @@ import '../../features/planner/presentation/screens/plan_detail_screen.dart';
 import '../../features/planner/presentation/screens/planner_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/study_groups/presentation/screens/group_chat_screen.dart';
+import '../../features/study_groups/presentation/screens/group_members_screen.dart';
 import '../../features/study_groups/presentation/screens/groups_list_screen.dart';
 import '../../features/subscription/presentation/screens/checkout_screen.dart';
 import '../../features/subscription/presentation/screens/manage_subscription_screen.dart';
@@ -156,6 +157,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         name: 'groupChat',
         builder: (_, state) =>
             GroupChatScreen(groupId: state.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/groups/:id/members',
+        name: 'groupMembers',
+        builder: (_, state) =>
+            GroupMembersScreen(groupId: state.pathParameters['id']!),
       ),
 
       // Admin
