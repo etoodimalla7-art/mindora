@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/design/tokens/app_spacing.dart';
 import '../../../core/design/widgets/widgets.dart';
@@ -240,11 +241,17 @@ class _QuickActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final router = GoRouter.of(context);
     final actions = <(IconData, String, VoidCallback)>[
-      (Icons.auto_awesome_outlined, 'Ask AI', () {}),
+      (Icons.auto_awesome_outlined, 'Ask AI',
+          () => router.go('/ai')),
       (Icons.quiz_outlined, 'Quick quiz', () {}),
-      (Icons.style_outlined, 'Flashcards', () {}),
-      (Icons.event_outlined, 'Open planner', () {}),
+      (Icons.style_outlined, 'Flashcards',
+          () => router.push('/flashcards')),
+      (Icons.event_outlined, 'Open planner',
+          () => router.go('/planner')),
+      (Icons.groups_outlined, 'Study groups',
+          () => router.push('/groups')),
     ];
     return GridView.count(
       crossAxisCount: 2,

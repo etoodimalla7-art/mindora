@@ -32,6 +32,8 @@ import '../../features/planner/presentation/screens/create_plan_screen.dart';
 import '../../features/planner/presentation/screens/plan_detail_screen.dart';
 import '../../features/planner/presentation/screens/planner_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
+import '../../features/study_groups/presentation/screens/group_chat_screen.dart';
+import '../../features/study_groups/presentation/screens/groups_list_screen.dart';
 import '../../features/subscription/presentation/screens/checkout_screen.dart';
 import '../../features/subscription/presentation/screens/manage_subscription_screen.dart';
 import '../../features/subscription/presentation/screens/payment_result_screen.dart';
@@ -148,8 +150,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (_, __) => const MyContributionsScreen(),
       ),
 
+      // Phase 13 — Group chat (full screen, outside ShellRoute)
+      GoRoute(
+        path: '/groups/:id',
+        name: 'groupChat',
+        builder: (_, state) =>
+            GroupChatScreen(groupId: state.pathParameters['id']!),
+      ),
+
       // Admin
-      // Admin shell (interface séparée)
       ShellRoute(
         builder: (_, __, child) => AdminShell(child: child),
         routes: [
@@ -273,6 +282,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             name: 'learn',
             builder: (_, __) => const DocumentsHomeScreen(),
           ),
+          // Phase 13 — Groups list (inside ShellRoute so bottom nav stays)
+          GoRoute(
+            path: AppRoutes.studyGroups,
+            name: 'studyGroups',
+            builder: (_, __) => const GroupsListScreen(),
+          ),
           GoRoute(
             path: AppRoutes.profile,
             name: 'profile',
@@ -299,7 +314,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     ),
   );
 });
-
 
 class _ForgotPasswordPlaceholder extends StatelessWidget {
   const _ForgotPasswordPlaceholder();

@@ -17,6 +17,10 @@ class AppRoutes {
   static const String flashcards = '/flashcards';
   static const String profile = '/profile';
 
+  // Phase 13 — Study Groups
+  static const String studyGroups = '/groups';
+  static String studyGroupChat(String id) => '/groups/$id';
+
   static const String plannerCreate = '/planner/create';
   static const String plannerCreateExam = '/planner/create/exam';
   static const String plannerCreateSubject = '/planner/create/subject';
@@ -31,5 +35,4 @@ class AppRoutes {
   static const String adminDashboard = '/admin/dashboard';
   static const String adminUsers = '/admin/users';
   static const String adminPapers = '/admin/papers';
-
 }
