@@ -85,19 +85,26 @@ class ChatController extends StateNotifier<ChatState> {
     state = state.copyWith(clearConversation: true, clearError: true);
   }
 
-  /// Send a message using the streaming endpoint.
-  Future<void> send(String text) async {
+  Future<void> send(
+    String text, {
+    String? imageBase64,
+    String? imageMimeType,
+  }) async {
     final trimmed = text.trim();
-    if (trimmed.isEmpty || state.sending) return;
+    final hasImage = imageBase64 != null && imageBase64.isNotEmpty;
+    if ((trimmed.isEmpty && !hasImage) || state.sending) return;
 
     final localUserId = 'local-user-${DateTime.now().microsecondsSinceEpoch}';
-    final localAssistantId = 'local-assistant-${DateTime.now().microsecondsSinceEpoch}';
+    final localAssistantId =
+        'local-assistant-${DateTime.now().microsecondsSinceEpoch}';
 
-    // Optimistic user message + an empty assistant message we'll grow.
+    final displayText = trimmed.isNotEmpty
+        ? trimmed
+        : (hasImage ? '📷 Image envoyée' : '');
     final userMsg = ChatMessage(
       id: localUserId,
       role: 'user',
-      content: trimmed,
+      content: displayText,
       createdAt: DateTime.now(),
     );
     final assistantMsg = ChatMessage(
@@ -119,6 +126,8 @@ class ChatController extends StateNotifier<ChatState> {
         .streamMessage(
       message: trimmed,
       conversationId: state.conversationId,
+      imageBase64: imageBase64,
+      imageMimeType: imageMimeType,
     )
         .listen(
       (event) {

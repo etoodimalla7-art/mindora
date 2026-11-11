@@ -33,6 +33,7 @@ dependencies:
   path_provider: ^2.1.4
 
   file_selector: ^1.0.3
+  image_picker: ^1.1.2
   intl: ^0.20.2
   collection: ^1.18.0
   equatable: ^2.0.5
@@ -54,8 +55,6 @@ dependencies:
   # Voice (STT) - Phase 11
   speech_to_text: ^7.0.0
   permission_handler: ^11.3.1
-
-  # Auth
 
   # Auth
   email_validator: ^3.0.0

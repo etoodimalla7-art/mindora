@@ -16,6 +16,7 @@ from app.api.v1 import (
     mock_exams,
     notifications,
     planner,
+    study_groups,
     subscriptions,
     users,
     webhooks,
@@ -43,3 +44,8 @@ api_router.include_router(
     notifications.router, prefix="/notifications", tags=["notifications"]
 )
 api_router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
+
+# Phase 13 — study groups
+api_router.include_router(
+    study_groups.router, prefix="/study-groups", tags=["study-groups"]
+)

@@ -18,7 +18,6 @@ class ChatSendResult {
   final Map<String, dynamic> usage;
 }
 
-/// Events emitted by the streaming endpoint.
 sealed class ChatStreamEvent {}
 
 class ChatMeta extends ChatStreamEvent {
@@ -57,10 +56,16 @@ class ChatRepository {
     required String message,
     String? conversationId,
     String? subject,
+    String? imageBase64,
+    String? imageMimeType,
   }) async {
     final body = <String, dynamic>{'message': message};
     if (conversationId != null) body['conversation_id'] = conversationId;
     if (subject != null) body['subject'] = subject;
+    if (imageBase64 != null && imageBase64.isNotEmpty) {
+      body['image_base64'] = imageBase64;
+      body['image_mime_type'] = imageMimeType ?? 'image/jpeg';
+    }
 
     final r = await _dio.post('/ai/chat', data: body);
     final data = r.data as Map<String, dynamic>;
@@ -71,17 +76,21 @@ class ChatRepository {
     );
   }
 
-  /// Stream a chat message as SSE events.
   Stream<ChatStreamEvent> streamMessage({
     required String message,
     String? conversationId,
     String? subject,
+    String? imageBase64,
+    String? imageMimeType,
   }) async* {
     final body = <String, dynamic>{'message': message};
     if (conversationId != null) body['conversation_id'] = conversationId;
     if (subject != null) body['subject'] = subject;
+    if (imageBase64 != null && imageBase64.isNotEmpty) {
+      body['image_base64'] = imageBase64;
+      body['image_mime_type'] = imageMimeType ?? 'image/jpeg';
+    }
 
-    // Timeout global (aligné sur le backend : 90s + marge 15s)
     const overallTimeout = Duration(seconds: 105);
 
     final controller = StreamController<ChatStreamEvent>();
@@ -179,7 +188,6 @@ class ChatRepository {
     }
     return null;
   }
-
 
   Future<List<Conversation>> listConversations() async {
     final r = await _dio.get('/ai/conversations');

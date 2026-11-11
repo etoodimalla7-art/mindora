@@ -1,7 +1,11 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../../../core/design/tokens/app_spacing.dart';
+import '../../../../core/media/image_picker_helper.dart';
 import '../../data/chat_providers.dart';
 import '../widgets/chat_bubble.dart';
 import 'conversations_drawer.dart';
@@ -19,6 +23,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _input = TextEditingController();
   final _scroll = ScrollController();
   final _inputFocus = FocusNode();
+
+  PickedImage? _pendingImage;
 
   @override
   void dispose() {
@@ -41,10 +47,58 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Future<void> _send() async {
     final text = _input.text;
-    if (text.trim().isEmpty) return;
+    final image = _pendingImage;
+    if (text.trim().isEmpty && image == null) return;
+
     _input.clear();
-    await ref.read(chatControllerProvider.notifier).send(text);
+    setState(() => _pendingImage = null);
+    await ref.read(chatControllerProvider.notifier).send(
+          text,
+          imageBase64: image?.base64,
+          imageMimeType: image?.mimeType,
+        );
     _scrollToBottom();
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final picked = await ImagePickerHelper.pick(source: source);
+    if (picked == null) return;
+    if (picked.isTooLarge) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Image trop lourde (max 5 Mo).')),
+      );
+      return;
+    }
+    setState(() => _pendingImage = picked);
+    _inputFocus.requestFocus();
+  }
+
+  Future<void> _showImageSourceSheet() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Prendre une photo'),
+              subtitle: const Text('Photographie un exercice ou une page'),
+              onTap: () => Navigator.of(ctx).pop(ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choisir dans la galerie'),
+              onTap: () => Navigator.of(ctx).pop(ImageSource.gallery),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (source != null) await _pickImage(source);
   }
 
   @override
@@ -53,7 +107,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final state = ref.watch(chatControllerProvider);
     final controller = ref.read(chatControllerProvider.notifier);
 
-    // Auto-scroll on new messages.
     ref.listen(chatControllerProvider, (prev, next) {
       if (prev?.messages.length != next.messages.length) {
         _scrollToBottom();
@@ -96,6 +149,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       },
                     ),
             ),
+            if (_pendingImage != null)
+              _PendingImagePreview(
+                image: _pendingImage!,
+                onRemove: () => setState(() => _pendingImage = null),
+              ),
             Container(
               padding: const EdgeInsets.all(AppSpacing.md),
               decoration: BoxDecoration(
@@ -108,6 +166,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
               child: Row(
                 children: [
+                  IconButton(
+                    onPressed: state.sending ? null : _showImageSourceSheet,
+                    icon: const Icon(Icons.add_photo_alternate_outlined),
+                    tooltip: 'Joindre une image',
+                  ),
                   Expanded(
                     child: TextField(
                       controller: _input,
@@ -155,6 +218,62 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 }
 
+class _PendingImagePreview extends StatelessWidget {
+  const _PendingImagePreview({required this.image, required this.onRemove});
+  final PickedImage image;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md, AppSpacing.sm, AppSpacing.md, AppSpacing.sm),
+      color: theme.colorScheme.surfaceContainerHighest,
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.memory(
+              Uint8List.fromList(image.bytes),
+              width: 56,
+              height: 56,
+              fit: BoxFit.cover,
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  image.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall,
+                ),
+                Text(
+                  '${(image.sizeBytes / 1024).toStringAsFixed(0)} Ko — '
+                  'prête à envoyer',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: onRemove,
+            icon: const Icon(Icons.close),
+            tooltip: 'Retirer',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _EmptyState extends StatelessWidget {
   const _EmptyState({required this.onExampleTap});
   final void Function(String) onExampleTap;
@@ -184,7 +303,8 @@ class _EmptyState extends StatelessWidget {
         const SizedBox(height: AppSpacing.sm),
         Text(
           'I can explain concepts, solve problems, and answer questions '
-          'about the documents you uploaded.',
+          'about the documents you uploaded. You can also send a photo '
+          'of an exercise — I will read it and solve it.',
           textAlign: TextAlign.center,
           style: theme.textTheme.bodyMedium?.copyWith(
             color: theme.colorScheme.onSurface.withValues(alpha: 0.7),

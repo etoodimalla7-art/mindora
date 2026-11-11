@@ -16,11 +16,13 @@ from app.models.notification import (
     Notification,
     NotificationPreference,
 )
+from app.models.paper import Paper
 from app.models.plan import StudyPlan, StudySession
 from app.models.progress import TopicProgress
 from app.models.session import Session
 from app.models.subscription import Payment, Plan, Subscription
 from app.models.user import EducationProfile, Profile, User
+from app.models.study_group import StudyGroup, StudyGroupMember, GroupMessage
 
 __all__ = [
     "User",
@@ -42,6 +44,7 @@ __all__ = [
     "MockExam",
     "MockQuestion",
     "MockAnswer",
+    "Paper",
     "Plan",
     "Subscription",
     "Payment",
@@ -51,4 +54,7 @@ __all__ = [
     "Flashcard",
     "Notification",
     "NotificationPreference",
+    "StudyGroup",
+    "StudyGroupMember",
+    "GroupMessage",
 ]
