@@ -5,6 +5,8 @@ from fastapi import APIRouter
 
 from app.api.v1 import (
     admin,
+    direct_messages,
+    direct_messages_ws,
     papers,
     flashcards,
     ai,
@@ -54,4 +56,16 @@ api_router.include_router(
 # Phase 13.4 — WebSocket real-time chat
 api_router.include_router(
     study_groups_ws.router, prefix="/study-groups", tags=["study-groups-ws"]
+)
+
+# Phase 13.7 — Direct messages (1-to-1)
+api_router.include_router(
+    direct_messages.router, prefix="/direct-conversations", tags=["direct-messages"]
+)
+
+# Phase 13.7 — Direct messages WebSocket
+api_router.include_router(
+    direct_messages_ws.router,
+    prefix="/direct-conversations",
+    tags=["direct-messages-ws"],
 )
