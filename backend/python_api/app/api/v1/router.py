@@ -17,6 +17,7 @@ from app.api.v1 import (
     notifications,
     planner,
     study_groups,
+    study_groups_ws,
     subscriptions,
     users,
     webhooks,
@@ -48,4 +49,9 @@ api_router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"]
 # Phase 13 — study groups
 api_router.include_router(
     study_groups.router, prefix="/study-groups", tags=["study-groups"]
+)
+
+# Phase 13.4 — WebSocket real-time chat
+api_router.include_router(
+    study_groups_ws.router, prefix="/study-groups", tags=["study-groups-ws"]
 )
