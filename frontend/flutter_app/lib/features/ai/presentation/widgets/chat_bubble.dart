@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/design/tokens/app_spacing.dart';
+import '../../../../core/voice/tts_button.dart';
 import '../../domain/chat_models.dart';
 import 'sources_card.dart';
 import 'tool_badges.dart';
@@ -48,14 +49,29 @@ class ChatBubble extends StatelessWidget {
                       bottomRight: Radius.circular(isUser ? 4 : 16),
                     ),
                   ),
-                  child: SelectableText(
-                    body,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: isUser
-                          ? theme.colorScheme.onPrimary
-                          : theme.colorScheme.onSurface,
-                      height: 1.5,
-                    ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SelectableText(
+                        body,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: isUser
+                              ? theme.colorScheme.onPrimary
+                              : theme.colorScheme.onSurface,
+                          height: 1.5,
+                        ),
+                      ),
+                      // TTS button for assistant responses with actual text.
+                      if (!isUser && body.trim().isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            TtsButton(text: body),
+                          ],
+                        ),
+                      ],
+                    ],
                   ),
                 ),
                 if (!isUser && message.toolsUsed.isNotEmpty)

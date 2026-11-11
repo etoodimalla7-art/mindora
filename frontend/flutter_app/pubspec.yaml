@@ -55,6 +55,7 @@ dependencies:
 
   # Voice (STT) - Phase 11
   speech_to_text: ^7.0.0
+  flutter_tts: ^4.0.2
   permission_handler: ^11.3.1
 
   # Auth
