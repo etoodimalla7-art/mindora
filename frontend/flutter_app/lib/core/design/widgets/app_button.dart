@@ -48,7 +48,7 @@ class AppButton extends StatelessWidget {
       ],
     );
 
-    // Safe handler — never crash on null onPressed.
+    // Safe handler — no null-check crash, no force-unwrap.
     VoidCallback? handler;
     if (!loading && onPressed != null) {
       handler = () {
