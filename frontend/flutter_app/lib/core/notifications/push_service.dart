@@ -1,18 +1,8 @@
-/// Centralized push notification service.
-///
-/// Responsibilities:
-/// - Init Firebase Messaging + local notifications channel (Android).
-/// - Request user permission (iOS + Android 13+).
-/// - Fetch + expose the FCM token (for backend registration).
-/// - Listen for token refresh.
-/// - Dispatch incoming messages (foreground / tapped) to callbacks.
-///
-/// Backend registration is done elsewhere (see ApiClient) via
-/// POST /api/v1/notifications/devices.
+/// FCM + local notifications service.
 library;
 
 import 'dart:async';
-import 'dart:io';
+import 'dart:convert';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -22,155 +12,168 @@ import 'package:logger/logger.dart';
 
 import 'notification_models.dart';
 
-/// Top-level background handler (must be a top-level function).
-@pragma('vm:entry-point')
-Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // Required so the app is initialized before handling background messages.
-  await Firebase.initializeApp();
-  Logger().i('[FCM/bg] ${message.messageId} data=${message.data}');
-}
-
 class PushService {
   PushService._();
   static final PushService instance = PushService._();
 
   final Logger _log = Logger();
-  final FlutterLocalNotificationsPlugin _local =
-      FlutterLocalNotificationsPlugin();
+  final FlutterLocalNotificationsPlugin _local = FlutterLocalNotificationsPlugin();
 
   bool _initialized = false;
   String? _token;
-  String? _lastHandledMessageId;
 
-  final StreamController<PushPayload> _foreground =
+  final StreamController<PushPayload> _onForegroundController =
       StreamController<PushPayload>.broadcast();
-  final StreamController<PushPayload> _openedApp =
+  final StreamController<PushPayload> _onOpenedAppController =
       StreamController<PushPayload>.broadcast();
-
-  /// Incoming messages while the app is in foreground.
-  Stream<PushPayload> get onForeground => _foreground.stream;
-
-  /// Messages that opened the app (tapped from tray, terminated state).
-  Stream<PushPayload> get onOpenedApp => _openedApp.stream;
 
   String? get token => _token;
+  Stream<PushPayload> get onForeground => _onForegroundController.stream;
+  Stream<PushPayload> get onOpenedApp => _onOpenedAppController.stream;
 
-  /// Call once, early in main().
   Future<void> initialize() async {
-    if (kIsWeb) {
-      _log.i('Push notifications disabled on Web');
-      return;
-    }
     if (_initialized) return;
-    _initialized = true;
-
-    // Local notifications (Android channel required for FCM display).
-    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const initSettings = InitializationSettings(android: androidInit);
-    await _local.initialize(initSettings);
-
-    // Android 8+ notification channel
-    const channel = AndroidNotificationChannel(
-      'mindora_default',
-      'MINDORA',
-      description: 'Notifications MINDORA',
-      importance: Importance.high,
-    );
-    await _local
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(channel);
-
-    // Register background handler
-    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-
-    // Request permission (Android 13+ / iOS)
-    await _requestPermission();
-
-    // Fetch token
     try {
-      _token = await FirebaseMessaging.instance.getToken();
-      _log.i('FCM token: ${_token?.substring(0, 12)}…');
-    } catch (e) {
-      _log.w('getToken failed: $e');
-    }
+      await Firebase.initializeApp();
 
-    // Token refresh
-    FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
-      _log.i('FCM token refreshed');
-      _token = newToken;
-    });
+      // ---- v22: initialize now takes `settings:` (named), not positional
+      const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const iosInit = DarwinInitializationSettings(
+        requestAlertPermission: true,
+        requestBadgePermission: true,
+        requestSoundPermission: true,
+      );
 
-    // Foreground message handler
-    FirebaseMessaging.onMessage.listen(_handleForeground);
+      await _local.initialize(
+        settings: const InitializationSettings(
+          android: androidInit,
+          iOS: iosInit,
+        ),
+        onDidReceiveNotificationResponse: (NotificationResponse response) {
+          final payload = response.payload;
+          if (payload != null && payload.isNotEmpty) {
+            try {
+              final data = jsonDecode(payload) as Map<String, dynamic>;
+              _onOpenedAppController
+                  .add(PushPayload.fromData(Map<String, dynamic>.from(data)));
+            } catch (_) {}
+          }
+        },
+      );
 
-    // Opened app handler (background → foreground via tap)
-    FirebaseMessaging.onMessageOpenedApp.listen((msg) {
-      _log.i('App opened from notification: ${msg.messageId}');
-      _emit(_openedApp, msg);
-    });
-
-    // Cold start: app was terminated and launched by a notification
-    final initial = await FirebaseMessaging.instance.getInitialMessage();
-    if (initial != null) {
-      _log.i('Cold start from notification: ${initial.messageId}');
-      // Slight delay so the router is ready
-      Future.delayed(const Duration(milliseconds: 500), () {
-        _emit(_openedApp, initial);
-      });
-    }
-
-    _log.i('PushService initialized (platform=${Platform.operatingSystem})');
-  }
-
-  Future<void> _requestPermission() async {
-    final settings = await FirebaseMessaging.instance.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-      provisional: false,
-    );
-    _log.i('Permission: ${settings.authorizationStatus}');
-  }
-
-  void _handleForeground(RemoteMessage msg) {
-    _log.i('[FCM/fg] ${msg.messageId}');
-    if (msg.messageId != null && msg.messageId == _lastHandledMessageId) {
-      return; // dedupe
-    }
-    _lastHandledMessageId = msg.messageId;
-    _emit(_foreground, msg);
-
-    // Also show a local notification (so the user sees it)
-    final notification = msg.notification;
-    if (notification != null) {
-      _showLocal(notification.title ?? 'MINDORA', notification.body ?? '');
-    }
-  }
-
-  void _emit(StreamController<PushPayload> ctrl, RemoteMessage msg) {
-    try {
-      ctrl.add(PushPayload.fromData(msg.data));
-    } catch (e) {
-      _log.w('emit failed: $e');
-    }
-  }
-
-  Future<void> _showLocal(String title, String body) async {
-    if (!Platform.isAndroid) return;
-    const details = NotificationDetails(
-      android: AndroidNotificationDetails(
+      // Android 8+ channel
+      const channel = AndroidNotificationChannel(
         'mindora_default',
         'MINDORA',
-        channelDescription: 'Notifications MINDORA',
+        description: 'Notifications MINDORA',
         importance: Importance.high,
-        priority: Priority.high,
-      ),
+        playSound: true,
+      );
+      await _local
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.createNotificationChannel(channel);
+
+      // iOS foreground presentation
+      await FirebaseMessaging.instance
+          .setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+
+      // Permissions
+      await FirebaseMessaging.instance.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+
+      // FCM token
+      try {
+        _token = await FirebaseMessaging.instance.getToken();
+        if (kDebugMode) {
+          _log.i('FCM token: ${_token != null ? "OK" : "null"}');
+        }
+      } catch (e) {
+        if (kDebugMode) _log.w('FCM getToken failed: $e');
+      }
+
+      // Foreground messages
+      FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+        if (kDebugMode) _log.i('FCM foreground: ${message.messageId}');
+        final payload = PushPayload.fromData(Map<String, dynamic>.from(message.data));
+        _onForegroundController.add(payload);
+
+        final title = message.notification?.title ?? payload.title ?? 'MINDORA';
+        final body = message.notification?.body ?? payload.body ?? '';
+        if (body.isNotEmpty) {
+          showLocal(title: title, body: body, payload: jsonEncode(message.data));
+        }
+      });
+
+      // Opened from tray
+      FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+        if (kDebugMode) _log.i('FCM onMessageOpenedApp: ${message.messageId}');
+        final payload = PushPayload.fromData(Map<String, dynamic>.from(message.data));
+        _onOpenedAppController.add(payload);
+      });
+
+      // Cold-start
+      final initial = await FirebaseMessaging.instance.getInitialMessage();
+      if (initial != null) {
+        final payload = PushPayload.fromData(Map<String, dynamic>.from(initial.data));
+        Future.delayed(const Duration(milliseconds: 800), () {
+          _onOpenedAppController.add(payload);
+        });
+      }
+
+      // Token refresh
+      FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
+        _token = newToken;
+        if (kDebugMode) _log.i('FCM token refreshed');
+      });
+
+      _initialized = true;
+      if (kDebugMode) _log.i('PushService initialized');
+    } catch (e) {
+      if (kDebugMode) _log.e('PushService init failed: $e');
+    }
+  }
+
+  Future<void> showLocal({
+    required String title,
+    required String body,
+    int? id,
+    String? payload,
+  }) async {
+    const android = AndroidNotificationDetails(
+      'mindora_default',
+      'MINDORA',
+      channelDescription: 'Notifications MINDORA',
+      importance: Importance.high,
+      priority: Priority.high,
     );
+    // DarwinNotificationDetails in v22 has NO required params — defaults are fine
+    const ios = DarwinNotificationDetails();
+    const details = NotificationDetails(android: android, iOS: ios);
+
     try {
-      await _local.show(0, title, body, details);
+      // v22: show uses named params `id:`, `title:`, `body:`, `notificationDetails:`
+      await _local.show(
+        id: id ?? DateTime.now().millisecondsSinceEpoch.remainder(100000),
+        title: title,
+        body: body,
+        notificationDetails: details,
+        payload: payload,
+      );
     } catch (e) {
       if (kDebugMode) _log.w('showLocal failed: $e');
     }
+  }
+
+  Future<void> dispose() async {
+    await _onForegroundController.close();
+    await _onOpenedAppController.close();
   }
 }
