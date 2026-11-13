@@ -20,6 +20,7 @@ from app.models.notification import (
 from app.models.paper import Paper
 from app.models.plan import StudyPlan, StudySession
 from app.models.progress import TopicProgress
+from app.models.role import Role, UserRole
 from app.models.session import Session
 from app.models.subscription import Payment, Plan, Subscription
 from app.models.user import EducationProfile, Profile, User
@@ -60,4 +61,6 @@ __all__ = [
     "GroupMessage",
     "DirectConversation",
     "DirectMessage",
+    "Role",
+    "UserRole",
 ]
