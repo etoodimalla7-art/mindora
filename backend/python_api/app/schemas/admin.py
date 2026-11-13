@@ -107,4 +107,29 @@ class PaperRow(BaseModel):
 
 class PaperDetail(PaperRow):
     description: str | None = None
-    uploader_id: uuid.UUID | None = None
+    uploader_id: uuid.UUID
+
+
+class PaperUpdateRequest(BaseModel):
+    """PATCH /admin/papers/{id} — partial update."""
+
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=1000)
+    subject: str | None = Field(default=None, min_length=1, max_length=80)
+    exam_system: str | None = Field(default=None, max_length=40)
+    exam_level: str | None = Field(default=None, max_length=40)
+    exam_year: int | None = Field(default=None, ge=1990, le=2100)
+    language: str | None = Field(default=None, max_length=8)
+    status: str | None = Field(default=None, max_length=20)
+
+
+class PaperUpdate(BaseModel):
+    """Partial update for a paper."""
+
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    subject: str | None = Field(default=None, min_length=1, max_length=80)
+    exam_system: str | None = Field(default=None, max_length=40)
+    exam_level: str | None = Field(default=None, max_length=40)
+    exam_year: int | None = Field(default=None, ge=1990, le=2100)
+    language: str | None = Field(default=None, max_length=8)
+    status: str | None = Field(default=None, max_length=20)

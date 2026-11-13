@@ -2,11 +2,10 @@
 from __future__ import annotations
 
 import logging
-
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import NotFoundError, ValidationError
@@ -43,7 +42,6 @@ from app.schemas.admin import (
     UsersStats,
 )
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -51,7 +49,7 @@ class AdminService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    # ---------- Documents (existing) ----------
+    # ---------- Documents ----------
 
     async def list_documents(
         self, status_filter: str | None, limit: int
@@ -80,21 +78,14 @@ class AdminService:
         doc.status = DOC_STATUS_APPROVED
         await self.session.commit()
 
-        # --- RAG pipeline (chunk + embed + store) ---
-        # Non-blocking: an embedding failure must not roll back the approval.
+        # RAG pipeline (non-blocking)
         try:
             n_chunks = await index_document(self.session, doc)
-            # index_document does flush() but not commit() — commit here
-            # so the chunks are actually persisted.
             await self.session.commit()
-            logger.info(
-                "rag_index_done doc_id=%s chunks=%d", doc.id, n_chunks
-            )
+            logger.info("rag_index_done doc_id=%s chunks=%d", doc.id, n_chunks)
         except Exception as exc:  # noqa: BLE001
             await self.session.rollback()
-            logger.exception(
-                "rag_index_failed doc_id=%s error=%s", doc.id, exc
-            )
+            logger.exception("rag_index_failed doc_id=%s error=%s", doc.id, exc)
 
         return ApproveResponse(id=doc.id, status=doc.status)
 
@@ -103,9 +94,7 @@ class AdminService:
         if not doc:
             raise NotFoundError("Document not found.")
         doc.status = DOC_STATUS_REJECTED
-        meta = dict(doc.metadata_json or {})
-        meta["rejection_reason"] = reason
-        doc.metadata_json = meta
+        doc.rejection_reason = reason
         await self.session.commit()
         return RejectResponse(id=doc.id, status=doc.status, reason=reason)
 
@@ -116,82 +105,116 @@ class AdminService:
         week_ago = now - timedelta(days=7)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
-        users_total = await self._count(User)
-        users_active = await self._count(User, User.is_active.is_(True))
-        users_admins = await self._count(User, User.is_admin.is_(True))
-        users_new_week = await self._count(User, User.created_at >= week_ago)
+        users_total = (
+            await self.session.execute(select(func.count(User.id)))
+        ).scalar_one()
+        users_active = (
+            await self.session.execute(
+                select(func.count(User.id)).where(User.is_active.is_(True))
+            )
+        ).scalar_one()
+        users_admins = (
+            await self.session.execute(
+                select(func.count(User.id)).where(User.is_admin.is_(True))
+            )
+        ).scalar_one()
+        users_new = (
+            await self.session.execute(
+                select(func.count(User.id)).where(User.created_at >= week_ago)
+            )
+        ).scalar_one()
 
-        docs_total = await self._count(Document)
-        docs_pending = await self._count(
-            Document, Document.status == DOC_STATUS_UNDER_REVIEW
-        )
-        docs_approved = await self._count(
-            Document, Document.status == DOC_STATUS_APPROVED
-        )
+        docs_total = (
+            await self.session.execute(select(func.count(Document.id)))
+        ).scalar_one()
+        docs_pending = (
+            await self.session.execute(
+                select(func.count(Document.id)).where(
+                    Document.status == DOC_STATUS_UNDER_REVIEW
+                )
+            )
+        ).scalar_one()
+        docs_approved = (
+            await self.session.execute(
+                select(func.count(Document.id)).where(
+                    Document.status == DOC_STATUS_APPROVED
+                )
+            )
+        ).scalar_one()
 
-        papers_total = await self._count(Paper)
-        papers_published = await self._count(
-            Paper, Paper.status == PAPER_STATUS_PUBLISHED
-        )
-        papers_draft = await self._count(Paper, Paper.status == PAPER_STATUS_DRAFT)
+        papers_total = (
+            await self.session.execute(select(func.count(Paper.id)))
+        ).scalar_one()
+        papers_published = (
+            await self.session.execute(
+                select(func.count(Paper.id)).where(
+                    Paper.status == PAPER_STATUS_PUBLISHED
+                )
+            )
+        ).scalar_one()
+        papers_draft = (
+            await self.session.execute(
+                select(func.count(Paper.id)).where(
+                    Paper.status == PAPER_STATUS_DRAFT
+                )
+            )
+        ).scalar_one()
 
-        sessions_today = await self._count(
-            StudySession, StudySession.created_at >= today_start
-        )
-        uploads_today = await self._count(
-            Document, Document.created_at >= today_start
-        )
+        sessions_today = (
+            await self.session.execute(
+                select(func.count(StudySession.id)).where(
+                    StudySession.created_at >= today_start
+                )
+            )
+        ).scalar_one()
+        uploads_today = (
+            await self.session.execute(
+                select(func.count(Document.id)).where(
+                    Document.created_at >= today_start
+                )
+            )
+        ).scalar_one()
 
         return AdminStatsOut(
             users=UsersStats(
                 total=users_total,
                 active=users_active,
                 admins=users_admins,
-                new_this_week=users_new_week,
+                new_this_week=users_new,
             ),
             documents=DocumentsStats(
-                total=docs_total, pending=docs_pending, approved=docs_approved
+                total=docs_total,
+                pending=docs_pending,
+                approved=docs_approved,
             ),
             papers=PapersStats(
-                total=papers_total, published=papers_published, draft=papers_draft
+                total=papers_total,
+                published=papers_published,
+                draft=papers_draft,
             ),
             activity=ActivityStats(
-                sessions_today=sessions_today, uploads_today=uploads_today
+                sessions_today=sessions_today,
+                uploads_today=uploads_today,
             ),
         )
-
-    async def _count(self, model, *where) -> int:
-        stmt = select(func.count(model.id))
-        for w in where:
-            stmt = stmt.where(w)
-        return int((await self.session.execute(stmt)).scalar() or 0)
 
     # ---------- Users ----------
 
     async def list_users(
         self, search: str | None, limit: int, offset: int
     ) -> list[AdminUserRow]:
-        stmt = select(User).order_by(User.created_at.desc()).limit(limit).offset(offset)
+        stmt = select(User).order_by(User.created_at.desc())
         if search:
-            like = f"%{search.lower()}%"
+            pattern = f"%{search.strip()}%"
             stmt = stmt.where(
-                (func.lower(User.email).like(like))
-                | (func.lower(User.full_name).like(like))
+                or_(
+                    User.email.ilike(pattern),
+                    User.full_name.ilike(pattern),
+                )
             )
+        stmt = stmt.limit(limit).offset(offset)
         rows = (await self.session.execute(stmt)).scalars().all()
-        return [
-            AdminUserRow(
-                id=u.id,
-                email=u.email,
-                full_name=u.full_name,
-                is_active=u.is_active,
-                is_verified=u.is_verified,
-                is_admin=u.is_admin,
-                created_at=u.created_at,
-                last_login_at=u.last_login_at,
-            )
-            for u in rows
-        ]
+        return [AdminUserRow.model_validate(u) for u in rows]
 
     async def toggle_user_active(self, user_id: uuid.UUID) -> ToggleActiveResponse:
         user = await self.session.get(User, user_id)
@@ -226,7 +249,7 @@ class AdminService:
         file_data: bytes,
         mime_type: str,
     ) -> PaperDetail:
-        # Validation: extension + MIME + size
+        # Validation
         name_lower = file_name.lower()
         if not any(name_lower.endswith(ext) for ext in ALLOWED_PAPER_EXTENSIONS):
             raise ValidationError(
@@ -242,7 +265,6 @@ class AdminService:
             )
 
         paper = Paper(
-            uploader_id=uploader_id,
             title=title,
             description=description,
             subject=subject,
@@ -250,11 +272,12 @@ class AdminService:
             exam_level=exam_level,
             exam_year=exam_year,
             language=language,
-            file_data=file_data,
+            status=PAPER_STATUS_PUBLISHED,
             file_name=file_name,
             file_size=len(file_data),
             mime_type=mime_type,
-            status=PAPER_STATUS_PUBLISHED,
+            file_data=file_data,
+            uploader_id=uploader_id,
         )
         self.session.add(paper)
         await self.session.commit()
@@ -262,11 +285,29 @@ class AdminService:
         return self._to_detail(paper)
 
     async def list_papers(
-        self, subject: str | None, limit: int, offset: int
+        self,
+        *,
+        subject: str | None = None,
+        exam_system: str | None = None,
+        exam_level: str | None = None,
+        exam_year: int | None = None,
+        search: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
     ) -> list[PaperRow]:
-        stmt = select(Paper).order_by(Paper.created_at.desc()).limit(limit).offset(offset)
+        stmt = select(Paper).order_by(Paper.created_at.desc())
         if subject:
             stmt = stmt.where(Paper.subject == subject)
+        if exam_system:
+            stmt = stmt.where(Paper.exam_system == exam_system)
+        if exam_level:
+            stmt = stmt.where(Paper.exam_level == exam_level)
+        if exam_year:
+            stmt = stmt.where(Paper.exam_year == exam_year)
+        if search:
+            pattern = f"%{search.strip()}%"
+            stmt = stmt.where(Paper.title.ilike(pattern))
+        stmt = stmt.limit(limit).offset(offset)
         rows = (await self.session.execute(stmt)).scalars().all()
         return [PaperRow.model_validate(p) for p in rows]
 
@@ -274,6 +315,41 @@ class AdminService:
         paper = await self.session.get(Paper, paper_id)
         if not paper:
             raise NotFoundError("Paper not found.")
+        return self._to_detail(paper)
+
+    async def update_paper(
+        self,
+        paper_id: uuid.UUID,
+        *,
+        title: str | None = None,
+        subject: str | None = None,
+        exam_system: str | None = None,
+        exam_level: str | None = None,
+        exam_year: int | None = None,
+        language: str | None = None,
+        status: str | None = None,
+    ) -> PaperDetail:
+        paper = await self.session.get(Paper, paper_id)
+        if not paper:
+            raise NotFoundError("Paper not found.")
+
+        if title is not None:
+            paper.title = title
+        if subject is not None:
+            paper.subject = subject
+        if exam_system is not None:
+            paper.exam_system = exam_system
+        if exam_level is not None:
+            paper.exam_level = exam_level
+        if exam_year is not None:
+            paper.exam_year = exam_year
+        if language is not None:
+            paper.language = language
+        if status is not None:
+            paper.status = status
+
+        await self.session.commit()
+        await self.session.refresh(paper)
         return self._to_detail(paper)
 
     async def delete_paper(self, paper_id: uuid.UUID) -> None:
@@ -284,7 +360,6 @@ class AdminService:
         await self.session.commit()
 
     async def get_paper_file(self, paper_id: uuid.UUID) -> tuple[bytes, str, str]:
-        """Return (file_data, file_name, mime_type) for download."""
         paper = await self.session.get(Paper, paper_id)
         if not paper:
             raise NotFoundError("Paper not found.")

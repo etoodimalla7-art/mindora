@@ -82,9 +82,6 @@ flutter:
     - assets/animations/
 
 
-dependency_overrides:
-  web: 0.5.1
-
 
 flutter_launcher_icons:
   android: true

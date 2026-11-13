@@ -39,10 +39,17 @@ class Env {
     return 'http://localhost:8000/api/v1';
   }
 
+  /// On GitHub Codespaces, every port has its own subdomain:
+  ///   -3000.app.github.dev  (frontend mobile)
+  ///   -3001.app.github.dev  (frontend admin)
+  ///   -8000.app.github.dev  (backend API)
+  /// We rewrite the current origin to always point to :8000.
   static String _codespacesRewrite(String origin) {
     return origin
         .replaceFirst('-3000.', '-8000.')
+        .replaceFirst('-3001.', '-8000.')
         .replaceFirst('-8080.', '-8000.')
-        .replaceFirst(':3000', ':8000');
+        .replaceFirst(':3000', ':8000')
+        .replaceFirst(':3001', ':8000');
   }
 }

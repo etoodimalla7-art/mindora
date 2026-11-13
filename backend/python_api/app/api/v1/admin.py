@@ -13,6 +13,7 @@ from app.schemas.admin import (
     ApproveResponse,
     PaperDetail,
     PaperRow,
+    PaperUpdate,
     PromoteResponse,
     RejectRequest,
     RejectResponse,
@@ -86,7 +87,7 @@ async def promote_user(
     return await AdminService(session).promote_user(user_id)
 
 
-# ---------- Papers (upload + list + delete) ----------
+# ---------- Papers (upload + list + edit + delete) ----------
 
 @router.post("/papers", response_model=PaperDetail)
 async def create_paper(
@@ -122,10 +123,22 @@ async def list_papers(
     session: SessionDep,
     _admin: AdminUser,
     subject: str | None = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=200),
+    exam_system: str | None = Query(default=None),
+    exam_level: str | None = Query(default=None),
+    exam_year: int | None = Query(default=None),
+    search: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> list[PaperRow]:
-    return await AdminService(session).list_papers(subject, limit, offset)
+    return await AdminService(session).list_papers(
+        subject=subject,
+        exam_system=exam_system,
+        exam_level=exam_level,
+        exam_year=exam_year,
+        search=search,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/papers/{paper_id}", response_model=PaperDetail)
@@ -133,6 +146,25 @@ async def get_paper(
     paper_id: uuid.UUID, session: SessionDep, _admin: AdminUser
 ) -> PaperDetail:
     return await AdminService(session).get_paper(paper_id)
+
+
+@router.patch("/papers/{paper_id}", response_model=PaperDetail)
+async def update_paper(
+    paper_id: uuid.UUID,
+    payload: PaperUpdate,
+    session: SessionDep,
+    _admin: AdminUser,
+) -> PaperDetail:
+    return await AdminService(session).update_paper(
+        paper_id,
+        title=payload.title,
+        subject=payload.subject,
+        exam_system=payload.exam_system,
+        exam_level=payload.exam_level,
+        exam_year=payload.exam_year,
+        language=payload.language,
+        status=payload.status,
+    )
 
 
 @router.delete("/papers/{paper_id}", status_code=204)
