@@ -20,6 +20,7 @@ class _AdminLayoutState extends ConsumerState<AdminLayout> {
     _NavItem(route: '/admin/dashboard', label: 'Dashboard', icon: Icons.dashboard_outlined),
     _NavItem(route: '/admin/users', label: 'Utilisateurs', icon: Icons.people_outline),
     _NavItem(route: '/admin/papers', label: 'Épreuves', icon: Icons.description_outlined),
+    _NavItem(route: '/admin/ai', label: 'AI Center', icon: Icons.smart_toy_outlined),
     _NavItem(route: '/admin/moderation', label: 'Modération', icon: Icons.shield_outlined),
   ];
 
