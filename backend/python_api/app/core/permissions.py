@@ -34,6 +34,7 @@ class Permission(StrEnum):
 
     # Analytics
     ANALYTICS_READ = "analytics.read"
+    ANALYTICS_EXPORT = "analytics.export"
 
     # System
     SYSTEM_MANAGE = "system.manage"
@@ -66,6 +67,7 @@ ROLE_PERMISSIONS: dict[RoleName, set[Permission]] = {
         Permission.CONTENT_MANAGE,
         Permission.NOTIFICATIONS_MANAGE,
         Permission.ANALYTICS_READ,
+        Permission.ANALYTICS_EXPORT,
         Permission.AUDIT_READ,
     },
     RoleName.MODERATOR: {
@@ -84,6 +86,7 @@ ROLE_PERMISSIONS: dict[RoleName, set[Permission]] = {
         Permission.DOCUMENTS_READ,
         Permission.AI_READ,
         Permission.ANALYTICS_READ,
+        Permission.ANALYTICS_EXPORT,
     },
 }
 
