@@ -12,6 +12,7 @@ from app.api.v1 import (
     admin_support,
     admin_security,
     admin_settings,
+    admin_sessions,
     admin_roles,
     admin_ws,
     direct_messages,
@@ -92,3 +93,4 @@ api_router.include_router(admin_content.router, prefix="/admin", tags=["admin-co
 api_router.include_router(admin_support.router, prefix="/admin", tags=["admin-support"])
 api_router.include_router(admin_security.router, prefix="/admin", tags=["admin-security"])
 api_router.include_router(admin_settings.router, prefix="/admin", tags=["admin-settings"])
+api_router.include_router(admin_sessions.router, prefix="/admin", tags=["admin-sessions"])
