@@ -1,6 +1,8 @@
 """Document, analysis, and moderation models."""
 from __future__ import annotations
 
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+
 import uuid
 from datetime import datetime
 
@@ -15,7 +17,7 @@ from sqlalchemy import (
     String,
     Text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, SoftDeleteMixin, TimestampMixin, UUIDMixin
@@ -80,6 +82,16 @@ class Document(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
 
     # Aggregate signals.
     download_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # Archiving
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    archived_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     quality_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
 
     # Free-form extras (subject_tags, ai_provenance, detector_confidences...).

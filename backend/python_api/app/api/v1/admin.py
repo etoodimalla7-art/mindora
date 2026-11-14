@@ -19,6 +19,7 @@ from app.schemas.admin import (
     RejectResponse,
     ToggleActiveResponse,
 )
+from app.models.document import Document
 from app.services.admin_service import AdminService
 from app.services.event_bus import event_bus
 
@@ -256,4 +257,103 @@ async def bulk_promote(
 ) -> BulkActionResult:
     return await AdminService(session).bulk_promote(
         payload.user_ids, admin_id=_admin.id
+    )
+
+
+# ---------- Phase 3: Documents enrichis ----------
+
+@router.get("/documents", response_model=list[dict])
+async def list_documents_enriched(
+    session: SessionDep,
+    _admin: AdminUser,
+    status_filter: str | None = Query(default=None, alias="status"),
+    category: str | None = Query(default=None),
+    academic_level: str | None = Query(default=None),
+    language: str | None = Query(default=None),
+    exam_system: str | None = Query(default=None),
+    search: str | None = Query(default=None),
+    archived: bool = Query(default=False),
+    sort: str = Query(default="recent"),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> list[dict]:
+    """List documents with rich filters (extends the legacy /admin/documents)."""
+    docs = await AdminService(session).list_documents(
+        status_filter=status_filter,
+        limit=limit,
+        offset=offset,
+        category=category,
+        academic_level=academic_level,
+        language=language,
+        exam_system=exam_system,
+        search=search,
+        archived=archived,
+        sort=sort,
+    )
+    return [d.model_dump(mode="json") for d in docs]
+
+
+@router.post("/documents/{doc_id}/archive")
+async def archive_document(
+    doc_id: uuid.UUID,
+    session: SessionDep,
+    _admin: AdminUser,
+) -> dict:
+    return await AdminService(session).archive_document(
+        doc_id, admin_id=_admin.id
+    )
+
+
+@router.post("/documents/{doc_id}/unarchive")
+async def unarchive_document(
+    doc_id: uuid.UUID,
+    session: SessionDep,
+    _admin: AdminUser,
+) -> dict:
+    return await AdminService(session).unarchive_document(
+        doc_id, admin_id=_admin.id
+    )
+
+
+@router.post("/documents/bulk-approve")
+async def bulk_approve_documents(
+    payload: dict,
+    session: SessionDep,
+    _admin: AdminUser,
+) -> dict:
+    doc_ids = [uuid.UUID(x) for x in payload.get("document_ids", [])]
+    return await AdminService(session).bulk_approve(
+        doc_ids, admin_id=_admin.id
+    )
+
+
+@router.post("/documents/bulk-reject")
+async def bulk_reject_documents(
+    payload: dict,
+    session: SessionDep,
+    _admin: AdminUser,
+) -> dict:
+    doc_ids = [uuid.UUID(x) for x in payload.get("document_ids", [])]
+    reason = payload.get("reason", "Rejected")
+    return await AdminService(session).bulk_reject(
+        doc_ids, reason, admin_id=_admin.id
+    )
+
+
+@router.get("/documents/{doc_id}/download")
+async def download_document(
+    doc_id: uuid.UUID,
+    session: SessionDep,
+    _admin: AdminUser,
+) -> Response:
+    """Stream the PDF for inline viewer."""
+    doc = await session.get(Document, doc_id)
+    if not doc or not doc.content:
+        return Response(status_code=404)
+    return Response(
+        content=doc.content,
+        media_type=doc.mime_type or "application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{doc.original_filename}"',
+        },
     )

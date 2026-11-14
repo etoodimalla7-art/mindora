@@ -12,9 +12,29 @@ class AdminDocumentRow(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     title: str
+    description: str | None = None
     owner_email: str
+    owner_id: uuid.UUID | None = None
+    category: str | None = None
+    academic_level: str | None = None
+    language: str = "en"
+    exam_system: str | None = None
+    exam_name: str | None = None
+    exam_year: int | None = None
+    document_type: str | None = None
+    size_bytes: int = 0
+    page_count: int | None = None
     status: str
+    rejection_reason: str | None = None
+    moderation_notes: str | None = None
+    quality_score: float = 0.0
+    download_count: int = 0
+    original_filename: str
+    mime_type: str
+    archived_at: datetime | None = None
+    archived_by: uuid.UUID | None = None
     created_at: datetime
+    updated_at: datetime | None = None
 
 
 class ApproveResponse(BaseModel):
@@ -176,6 +196,27 @@ class BulkActionRequest(BaseModel):
 
 
 class BulkActionResult(BaseModel):
+    succeeded: int
+    failed: int
+    errors: list[str] = []
+
+
+# ===== Phase 3: Documents extended =====
+
+class ArchiveDocumentRequest(BaseModel):
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class RejectDocumentWithReasonRequest(BaseModel):
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class BulkDocumentActionRequest(BaseModel):
+    document_ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class BulkDocumentActionResult(BaseModel):
     succeeded: int
     failed: int
     errors: list[str] = []

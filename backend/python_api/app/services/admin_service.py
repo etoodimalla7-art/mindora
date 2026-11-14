@@ -59,24 +59,99 @@ class AdminService:
     # ---------- Documents ----------
 
     async def list_documents(
-        self, status_filter: str | None, limit: int
+        self,
+        status_filter: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+        *,
+        category: str | None = None,
+        academic_level: str | None = None,
+        language: str | None = None,
+        exam_system: str | None = None,
+        search: str | None = None,
+        archived: bool = False,
+        sort: str = "recent",
     ) -> list[AdminDocumentRow]:
-        stmt = select(Document).order_by(Document.created_at.desc()).limit(limit)
+        from sqlalchemy import or_
+        from app.models.document import Document as D
+
+        stmt = select(D).where(
+            D.archived_at.is_(None) if not archived else D.archived_at.isnot(None)
+        )
         if status_filter:
-            stmt = stmt.where(Document.status == status_filter)
-        rows = (await self.session.execute(stmt)).scalars().all()
-        return [
-            AdminDocumentRow(
-                id=d.id,
-                title=d.title,
-                owner_email=getattr(d, "owner", None)
-                and getattr(d.owner, "email", "")
-                or "",
-                status=d.status,
-                created_at=d.created_at,
+            stmt = stmt.where(D.status == status_filter)
+        if category:
+            stmt = stmt.where(D.category == category)
+        if academic_level:
+            stmt = stmt.where(D.academic_level == academic_level)
+        if language:
+            stmt = stmt.where(D.language == language)
+        if exam_system:
+            stmt = stmt.where(D.exam_system == exam_system)
+        if search:
+            pattern = f"%{search.strip()}%"
+            stmt = stmt.where(
+                or_(D.title.ilike(pattern), D.description.ilike(pattern))
             )
-            for d in rows
-        ]
+
+        # Sort
+        if sort == "recent":
+            stmt = stmt.order_by(D.created_at.desc())
+        elif sort == "oldest":
+            stmt = stmt.order_by(D.created_at.asc())
+        elif sort == "size":
+            stmt = stmt.order_by(D.size_bytes.desc())
+        elif sort == "downloads":
+            stmt = stmt.order_by(D.download_count.desc())
+        else:
+            stmt = stmt.order_by(D.created_at.desc())
+
+        stmt = stmt.limit(limit).offset(offset)
+        rows = (await self.session.execute(stmt)).scalars().all()
+
+        from app.models.user import User as U
+        # Fetch owners in bulk
+        owner_ids = [d.owner_id for d in rows if d.owner_id]
+        owners = {}
+        if owner_ids:
+            owner_rows = (
+                await self.session.execute(select(U).where(U.id.in_(owner_ids)))
+            ).scalars().all()
+            owners = {u.id: u for u in owner_rows}
+
+        results = []
+        for d in rows:
+            owner = owners.get(d.owner_id)
+            results.append(
+                AdminDocumentRow(
+                    id=d.id,
+                    title=d.title,
+                    description=d.description,
+                    owner_email=owner.email if owner else "",
+                    owner_id=d.owner_id,
+                    category=d.category,
+                    academic_level=d.academic_level,
+                    language=d.language or "en",
+                    exam_system=d.exam_system,
+                    exam_name=d.exam_name,
+                    exam_year=d.exam_year,
+                    document_type=d.document_type,
+                    size_bytes=d.size_bytes or 0,
+                    page_count=d.page_count,
+                    status=d.status,
+                    rejection_reason=d.rejection_reason,
+                    moderation_notes=d.moderation_notes,
+                    quality_score=d.quality_score or 0.0,
+                    download_count=d.download_count or 0,
+                    original_filename=d.original_filename,
+                    mime_type=d.mime_type,
+                    archived_at=d.archived_at,
+                    archived_by=d.archived_by,
+                    created_at=d.created_at,
+                    updated_at=getattr(d, "updated_at", None),
+                )
+            )
+        return results
 
     @audit_action(
         action="document.approve",
@@ -582,6 +657,104 @@ class AdminService:
                 errors.append(f"{uid}: {exc}")
         await self.session.commit()
         return BulkActionResult(succeeded=succeeded, failed=failed, errors=errors)
+
+
+    # ---------- Phase 3: Archiving + Bulk ----------
+
+    @audit_action(
+        action="document.archive",
+        resource_type="document",
+        resource_id_arg="doc_id",
+    )
+    async def archive_document(
+        self,
+        doc_id: uuid.UUID,
+        reason: str | None = None,
+        admin_id: uuid.UUID | None = None,
+    ) -> dict:
+        doc = await self.session.get(Document, doc_id)
+        if not doc:
+            raise NotFoundError("Document not found.")
+        doc.archived_at = datetime.now(timezone.utc)
+        doc.archived_by = admin_id
+        if reason:
+            doc.moderation_notes = reason
+        await self.session.commit()
+        return {"id": str(doc.id), "archived_at": doc.archived_at.isoformat()}
+
+    @audit_action(
+        action="document.unarchive",
+        resource_type="document",
+        resource_id_arg="doc_id",
+    )
+    async def unarchive_document(
+        self,
+        doc_id: uuid.UUID,
+        admin_id: uuid.UUID | None = None,
+    ) -> dict:
+        doc = await self.session.get(Document, doc_id)
+        if not doc:
+            raise NotFoundError("Document not found.")
+        doc.archived_at = None
+        doc.archived_by = None
+        await self.session.commit()
+        return {"id": str(doc.id), "archived_at": None}
+
+    @audit_action(
+        action="document.bulk_approve",
+        resource_type="document",
+    )
+    async def bulk_approve(
+        self,
+        document_ids: list[uuid.UUID],
+        admin_id: uuid.UUID | None = None,
+    ) -> dict:
+        succeeded = 0
+        failed = 0
+        errors: list[str] = []
+        for doc_id in document_ids:
+            try:
+                doc = await self.session.get(Document, doc_id)
+                if not doc:
+                    failed += 1
+                    errors.append(f"Not found: {doc_id}")
+                    continue
+                doc.status = DOC_STATUS_APPROVED
+                succeeded += 1
+            except Exception as exc:
+                failed += 1
+                errors.append(f"{doc_id}: {exc}")
+        await self.session.commit()
+        return {"succeeded": succeeded, "failed": failed, "errors": errors}
+
+    @audit_action(
+        action="document.bulk_reject",
+        resource_type="document",
+    )
+    async def bulk_reject(
+        self,
+        document_ids: list[uuid.UUID],
+        reason: str,
+        admin_id: uuid.UUID | None = None,
+    ) -> dict:
+        succeeded = 0
+        failed = 0
+        errors: list[str] = []
+        for doc_id in document_ids:
+            try:
+                doc = await self.session.get(Document, doc_id)
+                if not doc:
+                    failed += 1
+                    errors.append(f"Not found: {doc_id}")
+                    continue
+                doc.status = DOC_STATUS_REJECTED
+                doc.rejection_reason = reason
+                succeeded += 1
+            except Exception as exc:
+                failed += 1
+                errors.append(f"{doc_id}: {exc}")
+        await self.session.commit()
+        return {"succeeded": succeeded, "failed": failed, "errors": errors}
 
     def _to_detail(self, p: Paper) -> PaperDetail:
         return PaperDetail(
