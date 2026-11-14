@@ -30,6 +30,7 @@ from app.models.user import EducationProfile, Profile, User
 from app.models.study_group import StudyGroup, StudyGroupMember, GroupMessage
 from app.models.support import SupportMessage, SupportTicket
 from app.models.security import AdminLoginHistory, SecurityAlert
+from app.models.app_settings import AppSetting, FeatureFlag
 
 __all__ = [
     "User",
@@ -79,4 +80,7 @@ __all__ = [
 
     "AdminLoginHistory",
     "SecurityAlert",
+
+    "AppSetting",
+    "FeatureFlag",
 ]
