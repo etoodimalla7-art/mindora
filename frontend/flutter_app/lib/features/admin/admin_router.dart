@@ -16,6 +16,7 @@ import 'presentation/screens/admin_content_screen.dart';
 import 'presentation/screens/admin_analytics_screen.dart';
 import 'presentation/screens/admin_support_screen.dart';
 import 'presentation/screens/admin_security_screen.dart';
+import 'presentation/screens/admin_settings_screen.dart';
 import 'presentation/screens/admin_broadcast_screen.dart';
 
 final adminRouterProvider = Provider<GoRouter>((ref) {
@@ -96,6 +97,11 @@ final adminRouterProvider = Provider<GoRouter>((ref) {
             path: '/admin/security',
             name: 'adminSecurity',
             builder: (_, __) => const AdminSecurityScreen(),
+          ),
+          GoRoute(
+            path: '/admin/settings',
+            name: 'adminSettings',
+            builder: (_, __) => const AdminSettingsScreen(),
           ),
           GoRoute(
             path: '/admin/moderation',
