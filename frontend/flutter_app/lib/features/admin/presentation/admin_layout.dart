@@ -3,19 +3,28 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../auth/presentation/auth_controller.dart';
+import '../data/admin_events_repository.dart';
 
 final _scaffoldKey = GlobalKey<ScaffoldState>();
 
-class AdminLayout extends StatelessWidget {
+class AdminLayout extends ConsumerStatefulWidget {
   const AdminLayout({super.key, required this.child});
   final Widget child;
 
+  @override
+  ConsumerState<AdminLayout> createState() => _AdminLayoutState();
+}
+
+class _AdminLayoutState extends ConsumerState<AdminLayout> {
   static const _items = <_NavItem>[
     _NavItem(route: '/admin/dashboard', label: 'Dashboard', icon: Icons.dashboard_outlined),
     _NavItem(route: '/admin/users', label: 'Utilisateurs', icon: Icons.people_outline),
     _NavItem(route: '/admin/papers', label: 'Épreuves', icon: Icons.description_outlined),
     _NavItem(route: '/admin/moderation', label: 'Modération', icon: Icons.shield_outlined),
   ];
+
+  int _unreadCount = 0;
+  bool _wsConnected = false;
 
   int _currentIndex(BuildContext context) {
     final path = GoRouterState.of(context).uri.path;
@@ -27,6 +36,21 @@ class AdminLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Listen to real-time events
+    ref.listen(adminEventsStreamProvider, (prev, next) {
+      next.whenData((state) {
+        if (!mounted) return;
+        if (state is AdminEventConnected) {
+          setState(() => _wsConnected = true);
+        } else if (state is AdminEventDisconnected) {
+          setState(() => _wsConnected = false);
+        } else if (state is AdminEventReceived) {
+          setState(() => _unreadCount++);
+          _showEventSnackBar(context, state.event);
+        }
+      });
+    });
+
     final index = _currentIndex(context);
     final width = MediaQuery.of(context).size.width;
     final isWide = width >= 900;
@@ -44,14 +68,64 @@ class AdminLayout extends StatelessWidget {
                   showMenuButton: !isWide,
                   onMenuTap: () => _scaffoldKey.currentState?.openDrawer(),
                   screenWidth: width,
+                  unreadCount: _unreadCount,
+                  wsConnected: _wsConnected,
+                  onBellTap: () => setState(() => _unreadCount = 0),
                 ),
-                Expanded(child: child),
+                Expanded(child: widget.child),
               ],
             ),
           ),
         ],
       ),
     );
+  }
+
+  void _showEventSnackBar(BuildContext context, AdminEvent event) {
+    final theme = Theme.of(context);
+    final (icon, color, label) = _eventVisual(event.type);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(color: theme.colorScheme.onInverseSurface),
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: theme.colorScheme.inverseSurface,
+        duration: const Duration(seconds: 4),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  static (IconData, Color, String) _eventVisual(String type) {
+    switch (type) {
+      case 'user.created':
+        return (Icons.person_add, Colors.green, 'Nouvel utilisateur inscrit');
+      case 'user.suspended':
+        return (Icons.block, Colors.orange, 'Utilisateur suspendu');
+      case 'document.submitted':
+        return (Icons.upload_file, Colors.blue, 'Nouveau document soumis');
+      case 'document.approved':
+        return (Icons.check_circle, Colors.green, 'Document approuvé');
+      case 'document.rejected':
+        return (Icons.cancel, Colors.red, 'Document rejeté');
+      case 'paper.created':
+        return (Icons.picture_as_pdf, Colors.purple, 'Nouvelle épreuve uploadée');
+      case 'ai.request.failed':
+        return (Icons.error, Colors.red, 'Erreur requête IA');
+      case 'system.error':
+        return (Icons.warning, Colors.red, 'Erreur système');
+      default:
+        return (Icons.notifications, Colors.blue, 'Événement: $type');
+    }
   }
 
   Widget _buildSidebar(BuildContext context, int index) {
@@ -165,10 +239,16 @@ class _TopBar extends StatelessWidget {
     required this.showMenuButton,
     required this.onMenuTap,
     required this.screenWidth,
+    required this.unreadCount,
+    required this.wsConnected,
+    required this.onBellTap,
   });
   final bool showMenuButton;
   final VoidCallback onMenuTap;
   final double screenWidth;
+  final int unreadCount;
+  final bool wsConnected;
+  final VoidCallback onBellTap;
 
   @override
   Widget build(BuildContext context) {
@@ -190,7 +270,6 @@ class _TopBar extends StatelessWidget {
               onPressed: onMenuTap,
             ),
           const Spacer(),
-          // Search — responsive width
           if (screenWidth >= 600) ...[
             Container(
               width: screenWidth.clamp(200.0, 300.0) - 80,
@@ -216,10 +295,47 @@ class _TopBar extends StatelessWidget {
             ),
             const SizedBox(width: 12),
           ],
-          IconButton(
-            icon: const Icon(Icons.notifications_none, color: Colors.white70),
-            onPressed: () {},
-            visualDensity: VisualDensity.compact,
+          // WS connection indicator
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: wsConnected ? Colors.green : Colors.orange,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 8),
+          // Bell with badge
+          Stack(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.notifications_none, color: Colors.white70),
+                onPressed: onBellTap,
+                visualDensity: VisualDensity.compact,
+              ),
+              if (unreadCount > 0)
+                Positioned(
+                  right: 4,
+                  top: 4,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: const BoxDecoration(
+                      color: Colors.red,
+                      shape: BoxShape.circle,
+                    ),
+                    constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                    child: Text(
+                      unreadCount > 9 ? '9+' : '$unreadCount',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+            ],
           ),
           const SizedBox(width: 4),
           const CircleAvatar(

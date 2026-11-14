@@ -20,6 +20,7 @@ from app.schemas.admin import (
     ToggleActiveResponse,
 )
 from app.services.admin_service import AdminService
+from app.services.event_bus import event_bus
 
 router = APIRouter()
 
@@ -173,3 +174,22 @@ async def delete_paper(
 ) -> Response:
     await AdminService(session).delete_paper(paper_id)
     return Response(status_code=204)
+
+
+# ---------- DEV ONLY: test event bus ----------
+
+@router.post("/test/publish-event")
+async def publish_test_event(
+    session: SessionDep,
+    admin: AdminUser,
+    event_type: str = "user.created",
+):
+    """DEV ONLY: publish a test event to the bus."""
+    from app.core.config import settings
+    from fastapi import HTTPException
+    if settings.is_production:
+        raise HTTPException(403, "Not allowed in production.")
+    delivered = await event_bus.publish(
+        event_type, {"message": "test event", "source": "dev endpoint"}
+    )
+    return {"event_type": event_type, "delivered": delivered}

@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     admin,
     admin_roles,
+    admin_ws,
     direct_messages,
     direct_messages_ws,
     papers,
@@ -71,3 +72,5 @@ api_router.include_router(
     prefix="/direct-conversations",
     tags=["direct-messages-ws"],
 )
+
+api_router.include_router(admin_ws.router, prefix="/admin", tags=["admin-ws"])
