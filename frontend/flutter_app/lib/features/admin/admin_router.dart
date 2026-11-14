@@ -12,6 +12,8 @@ import 'presentation/screens/admin_papers_screen.dart';
 import 'presentation/screens/admin_users_screen.dart';
 import 'presentation/screens/admin_user_detail_screen.dart';
 import 'presentation/screens/admin_ai_center_screen.dart';
+import 'presentation/screens/admin_content_screen.dart';
+import 'presentation/screens/admin_broadcast_screen.dart';
 
 final adminRouterProvider = Provider<GoRouter>((ref) {
   // Listen to auth state for redirects
@@ -66,6 +68,16 @@ final adminRouterProvider = Provider<GoRouter>((ref) {
             path: '/admin/ai',
             name: 'adminAI',
             builder: (_, __) => const AdminAICenterScreen(),
+          ),
+          GoRoute(
+            path: '/admin/content',
+            name: 'adminContent',
+            builder: (_, __) => const AdminContentScreen(),
+          ),
+          GoRoute(
+            path: '/admin/broadcasts',
+            name: 'adminBroadcasts',
+            builder: (_, __) => const AdminBroadcastScreen(),
           ),
           GoRoute(
             path: '/admin/moderation',
