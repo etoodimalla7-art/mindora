@@ -29,6 +29,7 @@ from app.models.subscription import Payment, Plan, Subscription
 from app.models.user import EducationProfile, Profile, User
 from app.models.study_group import StudyGroup, StudyGroupMember, GroupMessage
 from app.models.support import SupportMessage, SupportTicket
+from app.models.security import AdminLoginHistory, SecurityAlert
 
 __all__ = [
     "User",
@@ -75,4 +76,7 @@ __all__ = [
 
     "SupportTicket",
     "SupportMessage",
+
+    "AdminLoginHistory",
+    "SecurityAlert",
 ]

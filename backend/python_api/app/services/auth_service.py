@@ -17,6 +17,7 @@ from app.repositories.session_repo import SessionRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.auth import AuthResponse, TokenPair
 from app.services.credit_service import CreditService
+from app.services.security_service import SecurityService
 
 
 class AuthService:
@@ -71,15 +72,46 @@ class AuthService:
         ip_address: str | None = None,
     ) -> AuthResponse:
         user = await self.users.get_by_email(email)
+
+        # --- Log ECHEC : invalid credentials ---
         if not user or not verify_password(password, user.hashed_password):
+            await SecurityService(self.session).record_login(
+                user_id=user.id if user else None,
+                email=email,
+                ip=ip_address,
+                user_agent=user_agent,
+                success=False,
+                failure_reason="invalid_credentials",
+            )
             raise UnauthorizedError("Invalid email or password.")
+
+        # --- Log ECHEC : compte désactivé ---
         if not user.is_active:
+            await SecurityService(self.session).record_login(
+                user_id=user.id,
+                email=email,
+                ip=ip_address,
+                user_agent=user_agent,
+                success=False,
+                failure_reason="account_disabled",
+            )
             raise UnauthorizedError("This account is disabled.")
 
+        # --- Login réussi ---
         await self.users.touch_last_login(user)
         tokens = await self._issue_tokens(user, user_agent, ip_address)
         await self.session.commit()
         await self.session.refresh(user)
+
+        # --- Log SUCCES (après commit pour éviter conflit transaction) ---
+        await SecurityService(self.session).record_login(
+            user_id=user.id,
+            email=email,
+            ip=ip_address,
+            user_agent=user_agent,
+            success=True,
+        )
+
         return AuthResponse(tokens=tokens, user=user)  # type: ignore[arg-type]
 
     async def refresh(
