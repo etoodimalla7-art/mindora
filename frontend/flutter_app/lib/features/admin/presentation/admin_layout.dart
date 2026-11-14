@@ -26,6 +26,8 @@ class _AdminLayoutState extends ConsumerState<AdminLayout> {
     _NavItem(route: '/admin/broadcasts', label: 'Broadcasts', icon: Icons.campaign_outlined),
     _NavItem(route: '/admin/support', label: 'Support', icon: Icons.support_agent_outlined),
     _NavItem(route: '/admin/security', label: 'Security', icon: Icons.security_outlined),
+    _NavItem(route: '/admin/sessions', label: 'Sessions', icon: Icons.devices),
+    _NavItem(route: '/admin/settings', label: 'Settings', icon: Icons.settings_outlined),
     _NavItem(route: '/admin/moderation', label: 'Modération', icon: Icons.shield_outlined),
   ];
 
@@ -141,54 +143,64 @@ class _AdminLayoutState extends ConsumerState<AdminLayout> {
       color: const Color(0xFF151B2E),
       child: Column(
         children: [
-          const SizedBox(height: 24),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Row(
-              children: [
-                Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primary,
-                    borderRadius: BorderRadius.circular(8),
+          // Scrollable zone (logo + items)
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  const SizedBox(height: 24),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primary,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(Icons.admin_panel_settings,
+                              color: Colors.white, size: 20),
+                        ),
+                        const SizedBox(width: 12),
+                        const Text(
+                          'MINDORA',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 2,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  child: const Icon(Icons.admin_panel_settings,
-                      color: Colors.white, size: 20),
-                ),
-                const SizedBox(width: 12),
-                const Text(
-                  'MINDORA',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 2,
-                    color: Colors.white,
+                  const SizedBox(height: 8),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 20),
+                    child: Text(
+                      'Admin Dashboard',
+                      style: TextStyle(fontSize: 11, color: Colors.white54),
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 32),
+                  ...List.generate(_items.length, (i) {
+                    final item = _items[i];
+                    final selected = i == index;
+                    return _NavTile(
+                      item: item,
+                      selected: selected,
+                      onTap: () => context.go(item.route),
+                    );
+                  }),
+                  const SizedBox(height: 16),
+                ],
+              ),
             ),
           ),
-          const SizedBox(height: 8),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 20),
-            child: Text(
-              'Admin Dashboard',
-              style: TextStyle(fontSize: 11, color: Colors.white54),
-            ),
-          ),
-          const SizedBox(height: 32),
-          ...List.generate(_items.length, (i) {
-            final item = _items[i];
-            final selected = i == index;
-            return _NavTile(
-              item: item,
-              selected: selected,
-              onTap: () => context.go(item.route),
-            );
-          }),
-          const Spacer(),
-          const Divider(color: Colors.white12),
+          // Fixed bottom: logout
+          const Divider(height: 1, color: Colors.white12),
           _LogoutTile(),
           const SizedBox(height: 16),
         ],

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
 import 'core/notifications/push_service.dart';
+import 'core/maintenance/maintenance_gate.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,5 +29,9 @@ Future<void> main() async {
     DeviceOrientation.landscapeRight,
   ]);
 
-  runApp(const ProviderScope(child: MindoraApp()));
+  runApp(
+    const ProviderScope(
+      child: MaintenanceGate(child: MindoraApp()),
+    ),
+  );
 }

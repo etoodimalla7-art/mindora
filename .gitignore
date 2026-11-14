@@ -90,3 +90,4 @@ frontend/flutter_app/android/app/google-services.json
 /build/
 /pubspec.lock
 /analysis_options.yaml
+*.bak

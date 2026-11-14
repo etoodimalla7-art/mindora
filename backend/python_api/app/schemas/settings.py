@@ -73,3 +73,13 @@ class SettingsOptionsOut(BaseModel):
     years: list[int]
     maintenance: MaintenanceOut
     feature_flags: list[FeatureFlagOut]
+
+# ---------- Public Maintenance (no auth) ----------
+
+
+class MaintenancePublicOut(BaseModel):
+    """Public maintenance info — no sensitive data."""
+
+    enabled: bool
+    message: str = ""
+    eta: datetime | None = None
