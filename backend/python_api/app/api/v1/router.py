@@ -13,7 +13,6 @@ from app.api.v1 import (
     admin_security,
     admin_settings,
     admin_sessions,
-    settings,
     admin_roles,
     admin_ws,
     direct_messages,
