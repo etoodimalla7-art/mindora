@@ -25,6 +25,7 @@ class _AdminLayoutState extends ConsumerState<AdminLayout> {
     _NavItem(route: '/admin/content', label: 'Contenus (CMS)', icon: Icons.edit_document),
     _NavItem(route: '/admin/broadcasts', label: 'Broadcasts', icon: Icons.campaign_outlined),
     _NavItem(route: '/admin/support', label: 'Support', icon: Icons.support_agent_outlined),
+    _NavItem(route: '/admin/security', label: 'Security', icon: Icons.security_outlined),
     _NavItem(route: '/admin/moderation', label: 'Modération', icon: Icons.shield_outlined),
   ];
 
