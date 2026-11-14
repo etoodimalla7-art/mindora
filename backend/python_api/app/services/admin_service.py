@@ -24,6 +24,8 @@ from app.models.paper import (
     Paper,
 )
 from app.models.plan import StudySession
+from app.models.session import Session
+from app.models.role import UserRole, Role
 from app.models.user import User
 from ai.rag.embedder import index_document
 from app.services.audit_decorator import audit_action
@@ -41,6 +43,10 @@ from app.schemas.admin import (
     RejectResponse,
     ToggleActiveResponse,
     UsersStats,
+    AdminUserDetailOut,
+    SuspendUserRequest,
+    BulkActionRequest,
+    BulkActionResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -392,6 +398,190 @@ class AdminService:
         if not paper:
             raise NotFoundError("Paper not found.")
         return paper.file_data, paper.file_name, paper.mime_type
+
+
+    # ---------- Phase 2: User detail + suspension ----------
+
+    async def get_user_detail(
+        self, user_id: uuid.UUID
+    ) -> AdminUserDetailOut:
+        user = await self.session.get(User, user_id)
+        if not user:
+            raise NotFoundError("User not found.")
+
+        # Counts
+        docs_count = (
+            await self.session.execute(
+                select(func.count(Document.id)).where(Document.owner_id == user_id)
+            )
+        ).scalar_one() if hasattr(Document, "owner_id") else 0
+
+        papers_count = (
+            await self.session.execute(
+                select(func.count(Paper.id)).where(Paper.uploader_id == user_id)
+            )
+        ).scalar_one()
+
+        sessions_count = (
+            await self.session.execute(
+                select(func.count(Session.id)).where(
+                    Session.user_id == user_id,
+                    Session.revoked_at.is_(None),
+                )
+            )
+        ).scalar_one()
+
+        # Roles
+        role_rows = (
+            await self.session.execute(
+                select(Role.name)
+                .join(UserRole, UserRole.role_id == Role.id)
+                .where(UserRole.user_id == user_id)
+            )
+        ).scalars().all()
+
+        # Education
+        edu = user.education_profile
+
+        return AdminUserDetailOut(
+            id=user.id,
+            email=user.email,
+            full_name=user.full_name,
+            preferred_language=user.preferred_language,
+            country_code=user.country_code,
+            is_active=user.is_active,
+            is_verified=user.is_verified,
+            is_admin=user.is_admin,
+            suspended_at=user.suspended_at,
+            suspended_by=user.suspended_by,
+            suspension_reason=user.suspension_reason,
+            created_at=user.created_at,
+            last_login_at=None,
+            documents_count=docs_count,
+            papers_count=papers_count,
+            sessions_count=sessions_count,
+            roles=list(role_rows),
+            education_system=(edu.education_system if edu else None),
+            education_level=(edu.level if edu else None),
+            education_program=(edu.program if edu else None),
+            subjects=list(edu.subjects or []) if edu else [],
+        )
+
+    @audit_action(
+        action="user.suspend",
+        resource_type="user",
+        resource_id_arg="user_id",
+    )
+    async def suspend_user(
+        self,
+        user_id: uuid.UUID,
+        reason: str,
+        admin_id: uuid.UUID | None = None,
+    ) -> dict:
+        user = await self.session.get(User, user_id)
+        if not user:
+            raise NotFoundError("User not found.")
+        if user.is_admin and user.id == admin_id:
+            raise ValidationError("Cannot suspend yourself.")
+        user.is_active = False
+        user.suspended_at = datetime.now(timezone.utc)
+        user.suspended_by = admin_id
+        user.suspension_reason = reason
+        await self.session.commit()
+        return {"id": str(user.id), "is_active": False, "reason": reason}
+
+    @audit_action(
+        action="user.revoke_sessions",
+        resource_type="user",
+        resource_id_arg="user_id",
+    )
+    async def revoke_sessions(
+        self,
+        user_id: uuid.UUID,
+        admin_id: uuid.UUID | None = None,
+    ) -> dict:
+        user = await self.session.get(User, user_id)
+        if not user:
+            raise NotFoundError("User not found.")
+        now = datetime.now(timezone.utc)
+        # Fetch all active sessions then mark each as revoked
+        active_sessions = (
+            await self.session.execute(
+                select(Session).where(
+                    Session.user_id == user_id,
+                    Session.revoked_at.is_(None),
+                )
+            )
+        ).scalars().all()
+        count = 0
+        for s in active_sessions:
+            s.revoked_at = now
+            count += 1
+        await self.session.commit()
+        return {"id": str(user_id), "revoked": count}
+
+    @audit_action(
+        action="user.bulk_suspend",
+        resource_type="user",
+    )
+    async def bulk_suspend(
+        self,
+        user_ids: list[uuid.UUID],
+        reason: str | None,
+        admin_id: uuid.UUID | None = None,
+    ) -> BulkActionResult:
+        now = datetime.now(timezone.utc)
+        succeeded = 0
+        failed = 0
+        errors: list[str] = []
+        for uid in user_ids:
+            try:
+                if uid == admin_id:
+                    failed += 1
+                    errors.append(f"Skipped self ({uid})")
+                    continue
+                user = await self.session.get(User, uid)
+                if not user:
+                    failed += 1
+                    errors.append(f"Not found: {uid}")
+                    continue
+                user.is_active = False
+                user.suspended_at = now
+                user.suspended_by = admin_id
+                user.suspension_reason = reason or "Bulk suspension"
+                succeeded += 1
+            except Exception as exc:
+                failed += 1
+                errors.append(f"{uid}: {exc}")
+        await self.session.commit()
+        return BulkActionResult(succeeded=succeeded, failed=failed, errors=errors)
+
+    @audit_action(
+        action="user.bulk_promote",
+        resource_type="user",
+    )
+    async def bulk_promote(
+        self,
+        user_ids: list[uuid.UUID],
+        admin_id: uuid.UUID | None = None,
+    ) -> BulkActionResult:
+        succeeded = 0
+        failed = 0
+        errors: list[str] = []
+        for uid in user_ids:
+            try:
+                user = await self.session.get(User, uid)
+                if not user:
+                    failed += 1
+                    errors.append(f"Not found: {uid}")
+                    continue
+                user.is_admin = True
+                succeeded += 1
+            except Exception as exc:
+                failed += 1
+                errors.append(f"{uid}: {exc}")
+        await self.session.commit()
+        return BulkActionResult(succeeded=succeeded, failed=failed, errors=errors)
 
     def _to_detail(self, p: Paper) -> PaperDetail:
         return PaperDetail(

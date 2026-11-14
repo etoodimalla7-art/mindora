@@ -133,3 +133,49 @@ class PaperUpdate(BaseModel):
     exam_year: int | None = Field(default=None, ge=1990, le=2100)
     language: str | None = Field(default=None, max_length=8)
     status: str | None = Field(default=None, max_length=20)
+
+
+# ===== Phase 2 — User detail + suspension =====
+
+class AdminUserDetailOut(BaseModel):
+    """Detailed user view for /admin/users/{id}."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    email: str
+    full_name: str | None
+    preferred_language: str
+    country_code: str
+    is_active: bool
+    is_verified: bool
+    is_admin: bool
+    suspended_at: datetime | None
+    suspended_by: uuid.UUID | None
+    suspension_reason: str | None
+    created_at: datetime
+    last_login_at: datetime | None = None
+    # Stats
+    documents_count: int = 0
+    papers_count: int = 0
+    sessions_count: int = 0
+    roles: list[str] = []
+    # Education
+    education_system: str | None = None
+    education_level: str | None = None
+    education_program: str | None = None
+    subjects: list[str] = []
+
+
+class SuspendUserRequest(BaseModel):
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class BulkActionRequest(BaseModel):
+    user_ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class BulkActionResult(BaseModel):
+    succeeded: int
+    failed: int
+    errors: list[str] = []

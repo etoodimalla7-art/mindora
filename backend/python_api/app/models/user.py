@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Date, ForeignKey, String, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, SoftDeleteMixin, TimestampMixin, UUIDMixin
@@ -28,6 +28,17 @@ class User(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # Phase 2 — suspension tracking
+    suspended_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    suspended_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    suspension_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     last_login_at: Mapped[date | None] = mapped_column(Date, nullable=True)
 
@@ -61,7 +72,6 @@ class Profile(Base, UUIDMixin, TimestampMixin):
     bio: Mapped[str | None] = mapped_column(Text, nullable=True)
     timezone: Mapped[str] = mapped_column(String(64), default="Africa/Douala", nullable=False)
 
-    # Notification + UI preferences (extensible).
     preferences: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
 
     user: Mapped["User"] = relationship(back_populates="profile")
@@ -69,22 +79,20 @@ class Profile(Base, UUIDMixin, TimestampMixin):
 
 class EducationProfile(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "education_profiles"
-    __table_args__ = (UniqueConstraint("user_id", name="uq_education_profiles_user_id"),)
-
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_education_profiles_user_id"),
     )
 
-    # Examples: GCE_OL, GCE_AL, BEPC, PROBATOIRE, BAC, HND, BTS, LICENCE, MASTER
-    education_system: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    level: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    program: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False
+    )
 
-    # JSONB lists — subjects, goals, study windows.
+    education_system: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    level: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    program: Mapped[str | None] = mapped_column(String(120), nullable=True)
     subjects: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
     goals: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
     study_preferences: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
-
     target_exam_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="education_profile")

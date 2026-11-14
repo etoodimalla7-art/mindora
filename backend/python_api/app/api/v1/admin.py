@@ -193,3 +193,67 @@ async def publish_test_event(
         event_type, {"message": "test event", "source": "dev endpoint"}
     )
     return {"event_type": event_type, "delivered": delivered}
+
+
+# ---------- Phase 2: User detail + suspension + bulk ----------
+
+from app.schemas.admin import (
+    AdminUserDetailOut,
+    SuspendUserRequest,
+    BulkActionRequest,
+    BulkActionResult,
+)
+
+
+@router.get("/users/{user_id}", response_model=AdminUserDetailOut)
+async def get_user_detail(
+    user_id: uuid.UUID,
+    session: SessionDep,
+    _admin: AdminUser,
+) -> AdminUserDetailOut:
+    return await AdminService(session).get_user_detail(user_id)
+
+
+@router.post("/users/{user_id}/suspend")
+async def suspend_user(
+    user_id: uuid.UUID,
+    payload: SuspendUserRequest,
+    session: SessionDep,
+    _admin: AdminUser,
+) -> dict:
+    return await AdminService(session).suspend_user(
+        user_id, payload.reason, admin_id=_admin.id
+    )
+
+
+@router.post("/users/{user_id}/revoke-sessions")
+async def revoke_sessions(
+    user_id: uuid.UUID,
+    session: SessionDep,
+    _admin: AdminUser,
+) -> dict:
+    return await AdminService(session).revoke_sessions(
+        user_id, admin_id=_admin.id
+    )
+
+
+@router.post("/users/bulk-suspend", response_model=BulkActionResult)
+async def bulk_suspend(
+    payload: BulkActionRequest,
+    session: SessionDep,
+    _admin: AdminUser,
+) -> BulkActionResult:
+    return await AdminService(session).bulk_suspend(
+        payload.user_ids, payload.reason, admin_id=_admin.id
+    )
+
+
+@router.post("/users/bulk-promote", response_model=BulkActionResult)
+async def bulk_promote(
+    payload: BulkActionRequest,
+    session: SessionDep,
+    _admin: AdminUser,
+) -> BulkActionResult:
+    return await AdminService(session).bulk_promote(
+        payload.user_ids, admin_id=_admin.id
+    )
