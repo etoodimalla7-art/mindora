@@ -28,6 +28,7 @@ from app.models.session import Session
 from app.models.subscription import Payment, Plan, Subscription
 from app.models.user import EducationProfile, Profile, User
 from app.models.study_group import StudyGroup, StudyGroupMember, GroupMessage
+from app.models.support import SupportMessage, SupportTicket
 
 __all__ = [
     "User",
@@ -71,4 +72,7 @@ __all__ = [
     "AIConfigVersion",
     "ContentString",
     "BroadcastNotification",
+
+    "SupportTicket",
+    "SupportMessage",
 ]

@@ -36,6 +36,11 @@ class Permission(StrEnum):
     ANALYTICS_READ = "analytics.read"
     ANALYTICS_EXPORT = "analytics.export"
 
+    # Support
+    SUPPORT_READ = "support.read"
+    SUPPORT_WRITE = "support.write"
+    SUPPORT_ASSIGN = "support.assign"
+
     # System
     SYSTEM_MANAGE = "system.manage"
     AUDIT_READ = "audit.read"
@@ -55,6 +60,9 @@ class RoleName(StrEnum):
 ROLE_PERMISSIONS: dict[RoleName, set[Permission]] = {
     RoleName.SUPER_ADMIN: {p for p in Permission},  # all
     RoleName.ADMIN: {
+        Permission.SUPPORT_READ,
+        Permission.SUPPORT_WRITE,
+        Permission.SUPPORT_ASSIGN,
         Permission.USERS_READ,
         Permission.USERS_UPDATE,
         Permission.USERS_SUSPEND,
@@ -80,6 +88,8 @@ ROLE_PERMISSIONS: dict[RoleName, set[Permission]] = {
         Permission.USERS_READ,
         Permission.DOCUMENTS_READ,
         Permission.AI_READ,
+        Permission.SUPPORT_READ,
+        Permission.SUPPORT_WRITE,
     },
     RoleName.ANALYST: {
         Permission.USERS_READ,
@@ -87,6 +97,7 @@ ROLE_PERMISSIONS: dict[RoleName, set[Permission]] = {
         Permission.AI_READ,
         Permission.ANALYTICS_READ,
         Permission.ANALYTICS_EXPORT,
+        Permission.SUPPORT_READ,
     },
 }
 
