@@ -1,6 +1,7 @@
 """ORM models. Importing this package registers all models with Base.metadata."""
 from app.models.ai_config import AIConfig, AIConfigVersion
 from app.models.audit_log import AuditLog
+from app.models.content import ContentString, BroadcastNotification
 from app.models.conversation import Conversation, Message
 from app.models.credit import CreditLedger, Download
 from app.models.direct_message import DirectConversation, DirectMessage
@@ -68,4 +69,6 @@ __all__ = [
     "AuditLog",
     "AIConfig",
     "AIConfigVersion",
+    "ContentString",
+    "BroadcastNotification",
 ]
