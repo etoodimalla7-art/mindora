@@ -5,6 +5,7 @@ from fastapi import APIRouter
 
 from app.api.v1 import (
     admin,
+    admin_ai,
     admin_analytics,
     admin_audit,
     admin_roles,
@@ -80,3 +81,5 @@ api_router.include_router(admin_ws.router, prefix="/admin", tags=["admin-ws"])
 api_router.include_router(admin_audit.router, prefix="/admin", tags=["admin-audit"])
 
 api_router.include_router(admin_analytics.router, prefix="/admin", tags=["admin-analytics"])
+
+api_router.include_router(admin_ai.router, prefix="/admin/ai", tags=["admin-ai"])

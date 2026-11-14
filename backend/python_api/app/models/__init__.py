@@ -1,4 +1,5 @@
 """ORM models. Importing this package registers all models with Base.metadata."""
+from app.models.ai_config import AIConfig, AIConfigVersion
 from app.models.audit_log import AuditLog
 from app.models.conversation import Conversation, Message
 from app.models.credit import CreditLedger, Download
@@ -65,4 +66,6 @@ __all__ = [
     "Role",
     "UserRole",
     "AuditLog",
+    "AIConfig",
+    "AIConfigVersion",
 ]
