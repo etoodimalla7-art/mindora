@@ -41,7 +41,7 @@ async def list_documents(
 async def approve_document(
     doc_id: uuid.UUID, session: SessionDep, _admin: AdminUser
 ) -> ApproveResponse:
-    return await AdminService(session).approve(doc_id)
+    return await AdminService(session).approve(doc_id, admin_id=_admin.id)
 
 
 @router.post("/documents/{doc_id}/reject", response_model=RejectResponse)
@@ -51,7 +51,7 @@ async def reject_document(
     session: SessionDep,
     _admin: AdminUser,
 ) -> RejectResponse:
-    return await AdminService(session).reject(doc_id, payload.reason)
+    return await AdminService(session).reject(doc_id, payload.reason, admin_id=_admin.id)
 
 
 # ---------- Stats ----------
@@ -78,14 +78,14 @@ async def list_users(
 async def toggle_user_active(
     user_id: uuid.UUID, session: SessionDep, _admin: AdminUser
 ) -> ToggleActiveResponse:
-    return await AdminService(session).toggle_user_active(user_id)
+    return await AdminService(session).toggle_user_active(user_id, admin_id=_admin.id)
 
 
 @router.post("/users/{user_id}/promote", response_model=PromoteResponse)
 async def promote_user(
     user_id: uuid.UUID, session: SessionDep, _admin: AdminUser
 ) -> PromoteResponse:
-    return await AdminService(session).promote_user(user_id)
+    return await AdminService(session).promote_user(user_id, admin_id=_admin.id)
 
 
 # ---------- Papers (upload + list + edit + delete) ----------

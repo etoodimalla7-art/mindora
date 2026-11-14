@@ -1,4 +1,4 @@
-"""Admin service — documents moderation + users + papers + stats."""
+"""Admin service — documents moderation + users + papers + stats + audit."""
 from __future__ import annotations
 
 import logging
@@ -26,6 +26,7 @@ from app.models.paper import (
 from app.models.plan import StudySession
 from app.models.user import User
 from ai.rag.embedder import index_document
+from app.services.audit_decorator import audit_action
 from app.schemas.admin import (
     ActivityStats,
     AdminDocumentRow,
@@ -71,25 +72,41 @@ class AdminService:
             for d in rows
         ]
 
-    async def approve(self, doc_id: uuid.UUID) -> ApproveResponse:
+    @audit_action(
+        action="document.approve",
+        resource_type="document",
+        resource_id_arg="doc_id",
+    )
+    async def approve(
+        self, doc_id: uuid.UUID, admin_id: uuid.UUID | None = None
+    ) -> ApproveResponse:
         doc = await self.session.get(Document, doc_id)
         if not doc:
             raise NotFoundError("Document not found.")
         doc.status = DOC_STATUS_APPROVED
         await self.session.commit()
 
-        # RAG pipeline (non-blocking)
         try:
             n_chunks = await index_document(self.session, doc)
             await self.session.commit()
             logger.info("rag_index_done doc_id=%s chunks=%d", doc.id, n_chunks)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             await self.session.rollback()
             logger.exception("rag_index_failed doc_id=%s error=%s", doc.id, exc)
 
         return ApproveResponse(id=doc.id, status=doc.status)
 
-    async def reject(self, doc_id: uuid.UUID, reason: str) -> RejectResponse:
+    @audit_action(
+        action="document.reject",
+        resource_type="document",
+        resource_id_arg="doc_id",
+    )
+    async def reject(
+        self,
+        doc_id: uuid.UUID,
+        reason: str,
+        admin_id: uuid.UUID | None = None,
+    ) -> RejectResponse:
         doc = await self.session.get(Document, doc_id)
         if not doc:
             raise NotFoundError("Document not found.")
@@ -216,7 +233,14 @@ class AdminService:
         rows = (await self.session.execute(stmt)).scalars().all()
         return [AdminUserRow.model_validate(u) for u in rows]
 
-    async def toggle_user_active(self, user_id: uuid.UUID) -> ToggleActiveResponse:
+    @audit_action(
+        action="user.toggle_active",
+        resource_type="user",
+        resource_id_arg="user_id",
+    )
+    async def toggle_user_active(
+        self, user_id: uuid.UUID, admin_id: uuid.UUID | None = None
+    ) -> ToggleActiveResponse:
         user = await self.session.get(User, user_id)
         if not user:
             raise NotFoundError("User not found.")
@@ -224,7 +248,14 @@ class AdminService:
         await self.session.commit()
         return ToggleActiveResponse(id=user.id, is_active=user.is_active)
 
-    async def promote_user(self, user_id: uuid.UUID) -> PromoteResponse:
+    @audit_action(
+        action="user.promote",
+        resource_type="user",
+        resource_id_arg="user_id",
+    )
+    async def promote_user(
+        self, user_id: uuid.UUID, admin_id: uuid.UUID | None = None
+    ) -> PromoteResponse:
         user = await self.session.get(User, user_id)
         if not user:
             raise NotFoundError("User not found.")
@@ -249,7 +280,6 @@ class AdminService:
         file_data: bytes,
         mime_type: str,
     ) -> PaperDetail:
-        # Validation
         name_lower = file_name.lower()
         if not any(name_lower.endswith(ext) for ext in ALLOWED_PAPER_EXTENSIONS):
             raise ValidationError(
@@ -332,7 +362,6 @@ class AdminService:
         paper = await self.session.get(Paper, paper_id)
         if not paper:
             raise NotFoundError("Paper not found.")
-
         if title is not None:
             paper.title = title
         if subject is not None:
@@ -347,7 +376,6 @@ class AdminService:
             paper.language = language
         if status is not None:
             paper.status = status
-
         await self.session.commit()
         await self.session.refresh(paper)
         return self._to_detail(paper)
