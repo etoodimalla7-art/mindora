@@ -1,14 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 
-import '../../../../core/design/tokens/app_spacing.dart';
-import '../../../../core/design/widgets/widgets.dart';
-import '../../data/admin_providers.dart';
-import '../../domain/admin_models.dart';
-
-enum _Filter { pending, approved, rejected, all }
+import '../../data/admin_documents_repository.dart';
+import '../widgets/pdf_viewer_sheet.dart';
 
 class AdminModerationScreen extends ConsumerStatefulWidget {
   const AdminModerationScreen({super.key});
@@ -19,182 +13,285 @@ class AdminModerationScreen extends ConsumerStatefulWidget {
 }
 
 class _AdminModerationScreenState extends ConsumerState<AdminModerationScreen> {
-  _Filter _filter = _Filter.pending;
+  final _searchCtrl = TextEditingController();
+  final Set<String> _selected = {};
 
-  String? get _statusParam => switch (_filter) {
-        _Filter.pending => 'under_review',
-        _Filter.approved => 'approved',
-        _Filter.rejected => 'rejected',
-        _Filter.all => null,
-      };
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
-  Future<void> _reload() async {
-    ref.invalidate(pendingDocumentsProvider);
-    ref.invalidate(allDocumentsProvider);
+  Future<void> _bulkApprove() async {
+    if (_selected.isEmpty) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final r = await ref
+          .read(adminDocumentsRepositoryProvider)
+          .bulkApprove(_selected.toList());
+      if (mounted) {
+        setState(() => _selected.clear());
+        ref.invalidate(adminDocumentsProvider);
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              '${r['succeeded']} approuvé(s), ${r['failed']} échec(s)',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('Erreur: $e')));
+    }
+  }
+
+  Future<void> _bulkReject() async {
+    if (_selected.isEmpty) return;
+    final reasonCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Rejeter ${_selected.length} document(s) ?'),
+        content: TextField(
+          controller: reasonCtrl,
+          decoration: const InputDecoration(
+            labelText: 'Motif (obligatoire)',
+            border: OutlineInputBorder(),
+          ),
+          maxLines: 3,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (reasonCtrl.text.trim().length < 3) return;
+              Navigator.pop(ctx, true);
+            },
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Rejeter'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) {
+      reasonCtrl.dispose();
+      return;
+    }
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final r = await ref
+          .read(adminDocumentsRepositoryProvider)
+          .bulkReject(_selected.toList(), reasonCtrl.text.trim());
+      if (mounted) {
+        setState(() => _selected.clear());
+        ref.invalidate(adminDocumentsProvider);
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              '${r['succeeded']} rejeté(s), ${r['failed']} échec(s)',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('Erreur: $e')));
+    } finally {
+      reasonCtrl.dispose();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final async = ref.watch(
-      FutureProvider.autoDispose<List<AdminDocumentRow>>((ref) async {
-        return ref.watch(adminRepositoryProvider).listDocuments(status: _statusParam);
-      }),
-    );
+    final theme = Theme.of(context);
+    final docsAsync = ref.watch(adminDocumentsProvider);
+    final filter = ref.watch(documentsFilterProvider);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Admin — Moderation'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _reload,
+        title: Text(
+          _selected.isEmpty
+              ? 'Modération'
+              : '${_selected.length} sélectionné(s)',
+        ),
+        leading: _selected.isNotEmpty
+            ? IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => setState(() => _selected.clear()),
+              )
+            : null,
+        actions: _selected.isNotEmpty
+            ? [
+                TextButton.icon(
+                  onPressed: _bulkReject,
+                  icon: const Icon(Icons.cancel, color: Colors.red),
+                  label: const Text('Rejeter',
+                      style: TextStyle(color: Colors.red)),
+                ),
+                TextButton.icon(
+                  onPressed: _bulkApprove,
+                  icon: const Icon(Icons.check, color: Colors.green),
+                  label: const Text('Approuver',
+                      style: TextStyle(color: Colors.green)),
+                ),
+              ]
+            : null,
+      ),
+      body: Column(
+        children: [
+          // Search
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: TextField(
+              controller: _searchCtrl,
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.search),
+                hintText: 'Rechercher titre ou description…',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                isDense: true,
+              ),
+              onChanged: (v) {
+                ref.read(documentsFilterProvider.notifier).state =
+                    filter.copyWith(search: v.isEmpty ? null : v);
+              },
+            ),
+          ),
+          // Filters chips
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                _StatusChip(
+                  label: 'En attente',
+                  selected: filter.status == 'under_review',
+                  onTap: () => ref.read(documentsFilterProvider.notifier).state =
+                      filter.copyWith(status: 'under_review'),
+                ),
+                const SizedBox(width: 6),
+                _StatusChip(
+                  label: 'Approuvés',
+                  selected: filter.status == 'approved',
+                  onTap: () => ref.read(documentsFilterProvider.notifier).state =
+                      filter.copyWith(status: 'approved'),
+                ),
+                const SizedBox(width: 6),
+                _StatusChip(
+                  label: 'Rejetés',
+                  selected: filter.status == 'rejected',
+                  onTap: () => ref.read(documentsFilterProvider.notifier).state =
+                      filter.copyWith(status: 'rejected'),
+                ),
+                const SizedBox(width: 6),
+                _StatusChip(
+                  label: 'Tous',
+                  selected: filter.status == null && !filter.archived,
+                  onTap: () => ref.read(documentsFilterProvider.notifier).state =
+                      filter.copyWith(clearStatus: true, archived: false),
+                ),
+                const SizedBox(width: 6),
+                _StatusChip(
+                  label: 'Archivés',
+                  selected: filter.archived,
+                  onTap: () => ref.read(documentsFilterProvider.notifier).state =
+                      filter.copyWith(clearStatus: true, archived: true),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          // List
+          Expanded(
+            child: docsAsync.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, _) => Center(child: Text('Erreur: $e')),
+              data: (docs) {
+                if (docs.isEmpty) {
+                  return Center(
+                    child: Text('Aucun document',
+                        style: theme.textTheme.bodyMedium),
+                  );
+                }
+                return RefreshIndicator(
+                  onRefresh: () async =>
+                      ref.invalidate(adminDocumentsProvider),
+                  child: ListView.builder(
+                    itemCount: docs.length,
+                    itemBuilder: (_, i) {
+                      final d = docs[i];
+                      final isSelected = _selected.contains(d.id);
+                      return Card(
+                        child: ListTile(
+                          leading: Checkbox(
+                            value: isSelected,
+                            onChanged: (v) => setState(() {
+                              if (v == true) {
+                                _selected.add(d.id);
+                              } else {
+                                _selected.remove(d.id);
+                              }
+                            }),
+                          ),
+                          title: Text(d.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis),
+                          subtitle: Text(
+                            '${d.category ?? "?"} · ${d.academicLevel ?? "?"} · ${d.sizeFormatted}',
+                            style: theme.textTheme.bodySmall,
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                tooltip: 'Aperçu PDF',
+                                icon: const Icon(Icons.visibility, size: 20),
+                                onPressed: () => showPdfViewerSheet(
+                                  context,
+                                  docId: d.id,
+                                  title: d.title,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
           ),
         ],
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.xl,
-                AppSpacing.xl,
-                AppSpacing.xl,
-                AppSpacing.sm,
-              ),
-              child: AppTabs(
-                tabs: const ['Pending', 'Approved', 'Rejected', 'All'],
-                index: _filter.index,
-                onChanged: (i) => setState(() => _filter = _Filter.values[i]),
-              ),
-            ),
-            Expanded(
-              child: async.when(
-                loading: () => ListView(
-                  padding: const EdgeInsets.all(AppSpacing.xl),
-                  children: const [
-                    AppSkeleton(height: 100),
-                    SizedBox(height: AppSpacing.md),
-                    AppSkeleton(height: 100),
-                  ],
-                ),
-                error: (_, __) => AppEmptyState(
-                  icon: Icons.cloud_off_outlined,
-                  title: 'Could not load moderation queue',
-                  message: 'Please check your connection and try again.',
-                  actionLabel: 'Retry',
-                  onAction: () => ref.invalidate(pendingDocumentsProvider),
-                ),
-                data: (docs) {
-                  if (docs.isEmpty) {
-                    return AppEmptyState(
-                      icon: Icons.inbox_outlined,
-                      title: 'Nothing to review',
-                      message: switch (_filter) {
-                        _Filter.pending =>
-                          'No documents are waiting for moderation.',
-                        _Filter.approved => 'No approved documents yet.',
-                        _Filter.rejected => 'No rejected documents yet.',
-                        _Filter.all => 'No documents in the system yet.',
-                      },
-                    );
-                  }
-                  return RefreshIndicator(
-                    onRefresh: _reload,
-                    child: ListView.separated(
-                      padding: const EdgeInsets.all(AppSpacing.xl),
-                      itemCount: docs.length,
-                      separatorBuilder: (_, __) =>
-                          const SizedBox(height: AppSpacing.md),
-                      itemBuilder: (_, i) => _ModerationCard(doc: docs[i]),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
 }
 
-class _ModerationCard extends StatelessWidget {
-  const _ModerationCard({required this.doc});
-  final AdminDocumentRow doc;
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final (badgeText, badgeTone) = switch (doc.status) {
-      'approved' => ('APPROVED', AppBadgeTone.success),
-      'under_review' => ('UNDER REVIEW', AppBadgeTone.warning),
-      'rejected' => ('REJECTED', AppBadgeTone.danger),
-      'uploading' => ('UPLOADING', AppBadgeTone.info),
-      _ => ((doc.status ?? 'unknown').toUpperCase(), AppBadgeTone.neutral),
-    };
-
-    return AppSurface(
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      onTap: () => context.push('/admin/documents/${doc.id}'),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  doc.title,
-                  style: theme.textTheme.titleMedium,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              AppBadge(label: badgeText, tone: badgeTone),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            [
-              if (doc.category != null) doc.category,
-              if (doc.academicLevel != null) doc.academicLevel,
-              (doc.language ?? '').toUpperCase(),
-            ].whereType<String>().join(' · '),
-            style: theme.textTheme.labelSmall,
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Row(
-            children: [
-              Icon(
-                Icons.insert_drive_file_outlined,
-                size: 14,
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                '${((doc.sizeBytes ?? 0) / 1024).toStringAsFixed(1)} KB',
-                style: theme.textTheme.labelSmall,
-              ),
-              const SizedBox(width: AppSpacing.md),
-              Icon(
-                Icons.auto_awesome_outlined,
-                size: 14,
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                '${((doc.qualityScore ?? 0.0) * 100).toStringAsFixed(0)}% quality',
-                style: theme.textTheme.labelSmall,
-              ),
-              const Spacer(),
-              Text(
-                DateFormat.MMMd().format(doc.createdAt),
-                style: theme.textTheme.labelSmall,
-              ),
-            ],
-          ),
-        ],
-      ),
+    return ActionChip(
+      label: Text(label),
+      onPressed: onTap,
+      backgroundColor:
+          selected ? theme.colorScheme.primary.withValues(alpha: 0.2) : null,
+      side: selected ? BorderSide(color: theme.colorScheme.primary) : null,
     );
   }
 }
