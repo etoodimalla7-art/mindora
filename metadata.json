@@ -1,0 +1,11 @@
+{
+  "name": "MINDORA",
+  "description": "AI-powered exam-preparation platform with course-grounded AI tutoring, study planner, spaced-repetition flashcards, quizzes, mock exams, past papers library, and readiness analytics.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
