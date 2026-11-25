@@ -22,11 +22,17 @@ enum class AppLanguage(val code: String, val label: String) {
     }
 }
 
+data class MaintenanceStatus(
+    val enabled: Boolean = false,
+    val message: String = "",
+    val eta: String? = null
+)
+
 data class UserProfile(
-    val id: String = "student-1",
-    val fullName: String = "Alex Mbarga",
-    val email: String = "alex.mbarga@mindora.edu",
-    val isVerified: Boolean = true,
+    val id: String = "",
+    val fullName: String = "",
+    val email: String = "",
+    val isVerified: Boolean = false,
     val preferredLanguage: AppLanguage = AppLanguage.EN,
     val countryCode: String = "CM",
     val educationSystem: String = "Anglophone",
@@ -57,16 +63,25 @@ data class TodayFocus(
 )
 
 data class ReadinessBreakdown(
-    val knowledge: Float = 0.72f,
-    val practice: Float = 0.64f,
-    val retention: Float = 0.78f,
-    val consistency: Float = 0.80f
+    val knowledge: Float = 0f,
+    val practice: Float = 0f,
+    val retention: Float = 0f,
+    val consistency: Float = 0f
 )
 
 data class WeakTopic(
     val subject: String,
     val topic: String,
     val mastery: Float
+)
+
+data class TopicMasteryItem(
+    val subject: String,
+    val topic: String,
+    val mastery: Float,
+    val questionsSeen: Int,
+    val questionsCorrect: Int,
+    val minutesStudied: Int
 )
 
 data class RecentActivity(
@@ -96,14 +111,14 @@ data class StudySession(
     val objective: String,
     val scheduledForMillis: Long,
     val durationMinutes: Int,
-    val status: String // "scheduled" | "completed"
+    val status: String
 ) {
     val isCompleted: Boolean get() = status == "completed"
 }
 
 data class StudyPlan(
     val id: String,
-    val planType: String, // "exam" | "subject"
+    val planType: String,
     val title: String,
     val subject: String,
     val examSystem: String,
@@ -124,7 +139,7 @@ data class ToolUsage(
 
 data class ChatMessage(
     val id: String,
-    val role: String, // "user" | "assistant"
+    val role: String,
     val content: String,
     val attachmentLabel: String? = null,
     val toolsUsed: List<ToolUsage> = emptyList(),
@@ -159,14 +174,16 @@ data class Deck(
     val title: String,
     val subject: String,
     val description: String,
-    val cards: List<Flashcard>
+    val cards: List<Flashcard>,
+    val serverCardCount: Int? = null,
+    val serverDueCount: Int? = null
 ) {
-    val cardCount: Int get() = cards.size
-    val dueCount: Int get() = cards.count { it.isDue }
+    val cardCount: Int get() = serverCardCount ?: cards.size
+    val dueCount: Int get() = serverDueCount ?: cards.count { it.isDue }
 }
 
 /**
- * SuperMemo 2 (SM-2) spaced repetition algorithm ported from backend/python_api/app/services/sm2.py.
+ * SuperMemo 2 (SM-2) offline spaced repetition engine matching backend/python_api/app/services/sm2.py.
  */
 object Sm2Engine {
     fun update(card: Flashcard, quality: Int, nowMillis: Long = System.currentTimeMillis()): Flashcard {
@@ -206,11 +223,11 @@ data class MockQuestion(
     val id: String,
     val position: Int,
     val topic: String,
-    val questionType: String, // "mcq" | "true_false"
+    val questionType: String,
     val prompt: String,
     val options: List<MockQuestionOption>,
-    val correctAnswer: String,
-    val explanation: String,
+    val correctAnswer: String? = null,
+    val explanation: String? = null,
     val points: Int = 1
 )
 
@@ -219,7 +236,12 @@ data class AnswerResult(
     val userAnswer: String?,
     val isCorrect: Boolean,
     val correctAnswer: String,
-    val explanation: String
+    val explanation: String?
+)
+
+data class TopicStat(
+    val total: Int,
+    val correct: Int
 )
 
 data class MockExam(
@@ -229,9 +251,12 @@ data class MockExam(
     val academicLevel: String,
     val difficulty: String,
     val durationMinutes: Int,
-    val status: String, // "ready" | "in_progress" | "graded"
-    val questions: List<MockQuestion>,
+    val status: String,
+    val serverQuestionCount: Int = 0,
+    val questions: List<MockQuestion> = emptyList(),
     val answers: Map<String, String> = emptyMap(),
+    val answerResults: List<AnswerResult> = emptyList(),
+    val topicBreakdown: Map<String, TopicStat> = emptyMap(),
     val score: Double? = null,
     val correctCount: Int? = null,
     val wrongCount: Int? = null,
@@ -239,7 +264,7 @@ data class MockExam(
     val feedbackSummary: String? = null,
     val createdAtMillis: Long = System.currentTimeMillis()
 ) {
-    val questionCount: Int get() = questions.size
+    val questionCount: Int get() = if (questions.isNotEmpty()) questions.size else serverQuestionCount
     val isReady: Boolean get() = status == "ready"
     val isInProgress: Boolean get() = status == "in_progress"
     val isGraded: Boolean get() = status == "graded"
@@ -254,10 +279,10 @@ data class PastPaper(
     val examYear: Int,
     val session: String,
     val language: String,
+    val fileName: String,
     val fileSizeLabel: String,
     val downloadCount: Int,
-    val isUnlocked: Boolean = false,
-    val sampleQuestions: List<String> = emptyList()
+    val localFilePath: String? = null
 )
 
 data class ContributedDocument(
@@ -269,7 +294,7 @@ data class ContributedDocument(
     val description: String,
     val contentText: String,
     val fileName: String,
-    val status: String, // "approved" | "under_review"
+    val status: String,
     val creditsAwarded: Int,
     val createdAtMillis: Long = System.currentTimeMillis()
 )
@@ -288,5 +313,60 @@ data class StudyGroup(
     val subject: String,
     val examLevel: String,
     val memberCount: Int,
-    val messages: List<GroupMessage>
+    val isMember: Boolean = false,
+    val messages: List<GroupMessage> = emptyList()
+)
+
+data class SubscriptionPlan(
+    val id: String,
+    val code: String,
+    val name: String,
+    val description: String,
+    val tier: String,
+    val amountMinor: Int,
+    val currency: String,
+    val billingCycle: String,
+    val features: List<String>
+)
+
+data class ActiveSubscription(
+    val id: String,
+    val status: String,
+    val planName: String,
+    val tier: String,
+    val periodEnd: String?
+)
+
+data class AppNotification(
+    val id: String,
+    val type: String,
+    val title: String,
+    val body: String,
+    val isRead: Boolean,
+    val createdAt: String?
+)
+
+data class NotificationPrefs(
+    val enabled: Boolean = true,
+    val sessionReminders: Boolean = true,
+    val examCountdown: Boolean = true,
+    val streakReminders: Boolean = true
+)
+
+data class SupportMessage(
+    val id: String,
+    val authorEmail: String?,
+    val body: String,
+    val isAdmin: Boolean,
+    val createdAt: String?
+)
+
+data class SupportTicket(
+    val id: String,
+    val subject: String,
+    val description: String,
+    val status: String,
+    val priority: String,
+    val createdAt: String?,
+    val messages: List<SupportMessage> = emptyList()
 )

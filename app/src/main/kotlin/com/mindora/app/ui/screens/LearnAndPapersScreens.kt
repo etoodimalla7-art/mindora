@@ -1,8 +1,13 @@
 package com.mindora.app.ui.screens
 
+import android.graphics.Bitmap
+import android.graphics.pdf.PdfRenderer
 import android.net.Uri
+import android.os.ParcelFileDescriptor
+import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,15 +26,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.FolderCopy
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Quiz
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material.icons.outlined.UploadFile
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -39,10 +46,12 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -51,10 +60,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.mindora.app.data.AppLanguage
 import com.mindora.app.data.ContributedDocument
 import com.mindora.app.data.PastPaper
 import com.mindora.app.ui.components.AppBadge
@@ -64,9 +78,11 @@ import com.mindora.app.ui.components.BadgeTone
 import com.mindora.app.ui.components.MindoraTopBar
 import com.mindora.app.ui.theme.MindoraPalette
 import kotlinx.coroutines.launch
+import java.io.File
 
 @Composable
 fun LearnHubScreen(
+    language: AppLanguage,
     creditsBalance: Int,
     papersCount: Int,
     decksCount: Int,
@@ -78,6 +94,7 @@ fun LearnHubScreen(
     onOpenContribute: () -> Unit,
     onOpenMyContributions: () -> Unit
 ) {
+    val isFr = language == AppLanguage.FR
     Scaffold(
         topBar = { MindoraTopBar(showWordmark = true) }
     ) { padding ->
@@ -112,9 +129,13 @@ fun LearnHubScreen(
                         }
                         Spacer(modifier = Modifier.width(14.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Download credits", style = MaterialTheme.typography.titleMedium)
                             Text(
-                                text = "Earn 5 credits for each approved document contribution.",
+                                if (isFr) "Crédits de téléchargement" else "Download credits",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Text(
+                                text = if (isFr) "Gagne +5 crédits pour chaque document approuvé."
+                                else "Earn 5 credits for each approved document contribution.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -127,8 +148,9 @@ fun LearnHubScreen(
                 LearnHubTile(
                     icon = Icons.Outlined.Description,
                     iconTint = MindoraPalette.Danger,
-                    title = "Past Papers",
-                    subtitle = "$papersCount exam papers · Filter by GCE, BEPC, Bac",
+                    title = if (isFr) "Annales & Sujets (PDF)" else "Past Papers",
+                    subtitle = if (isFr) "$papersCount sujets · GCE, BEPC, Bac (visionneuse PDF)"
+                    else "$papersCount exam papers · GCE, BEPC, Bac PDF library",
                     onClick = onOpenPastPapers
                 )
             }
@@ -137,7 +159,8 @@ fun LearnHubScreen(
                     icon = Icons.Outlined.Style,
                     iconTint = MaterialTheme.colorScheme.primary,
                     title = "Flashcards",
-                    subtitle = "$decksCount decks · SM-2 spaced repetition review",
+                    subtitle = if (isFr) "$decksCount paquets · Répétition espacée SM-2"
+                    else "$decksCount decks · SM-2 spaced repetition review",
                     onClick = onOpenFlashcards
                 )
             }
@@ -145,8 +168,9 @@ fun LearnHubScreen(
                 LearnHubTile(
                     icon = Icons.Outlined.Quiz,
                     iconTint = MindoraPalette.Accent500,
-                    title = "Mock Exams",
-                    subtitle = "$examsCount exams · Timed practice with detailed corrections",
+                    title = if (isFr) "Examens Blancs" else "Mock Exams",
+                    subtitle = if (isFr) "$examsCount examens · Correction serveur & analyse"
+                    else "$examsCount exams · Timed practice & server grading",
                     onClick = onOpenMockExams
                 )
             }
@@ -154,8 +178,9 @@ fun LearnHubScreen(
                 LearnHubTile(
                     icon = Icons.Outlined.UploadFile,
                     iconTint = MindoraPalette.Success,
-                    title = "Contribute a document",
-                    subtitle = "Upload course notes or study guides (+5 credits)",
+                    title = if (isFr) "Partager un document" else "Contribute a document",
+                    subtitle = if (isFr) "Partage tes fiches PDF ou notes (+5 crédits)"
+                    else "Upload course notes or study guides (+5 credits)",
                     onClick = onOpenContribute
                 )
             }
@@ -163,8 +188,9 @@ fun LearnHubScreen(
                 LearnHubTile(
                     icon = Icons.Outlined.FolderCopy,
                     iconTint = MaterialTheme.colorScheme.primary,
-                    title = "My contributions",
-                    subtitle = "$docsCount documents indexed for AI Tutor search",
+                    title = if (isFr) "Mes contributions" else "My contributions",
+                    subtitle = if (isFr) "$docsCount documents indexés pour le Tuteur IA"
+                    else "$docsCount documents indexed for AI Tutor search",
                     onClick = onOpenMyContributions
                 )
             }
@@ -215,24 +241,32 @@ private fun LearnHubTile(
 
 @Composable
 fun PastPapersScreen(
+    language: AppLanguage,
     papers: List<PastPaper>,
-    creditsBalance: Int,
-    onUnlockPaper: (String) -> Boolean,
+    loading: Boolean,
+    onDownloadPaper: suspend (PastPaper) -> Result<File>,
     onBack: () -> Unit
 ) {
+    val isFr = language == AppLanguage.FR
+    var search by remember { mutableStateOf("") }
     var selectedSystem by remember { mutableStateOf<String?>(null) }
     var selectedLevel by remember { mutableStateOf<String?>(null) }
-    var previewPaper by remember { mutableStateOf<PastPaper?>(null) }
+    var viewingFile by remember { mutableStateOf<Pair<PastPaper, File>?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
     val filtered = papers.filter { p ->
-        (selectedSystem == null || p.examSystem == selectedSystem) &&
-            (selectedLevel == null || p.examLevel == selectedLevel)
+        val matchesQuery = search.isBlank() ||
+            p.title.contains(search, ignoreCase = true) ||
+            p.subject.contains(search, ignoreCase = true) ||
+            p.fileName.contains(search, ignoreCase = true)
+        val matchesSys = selectedSystem == null || p.examSystem.contains(selectedSystem!!, ignoreCase = true)
+        val matchesLvl = selectedLevel == null || p.examLevel.contains(selectedLevel!!, ignoreCase = true)
+        matchesQuery && matchesSys && matchesLvl
     }
 
     Scaffold(
-        topBar = { MindoraTopBar(title = "Past Papers", onBack = onBack) },
+        topBar = { MindoraTopBar(title = if (isFr) "Annales PDF" else "Past Papers", onBack = onBack) },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Column(
@@ -241,9 +275,21 @@ fun PastPapersScreen(
                 .padding(padding)
         ) {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                Text("System", style = MaterialTheme.typography.labelMedium)
+                OutlinedTextField(
+                    value = search,
+                    onValueChange = { search = it },
+                    leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                    placeholder = { Text(if (isFr) "Rechercher matière ou sujet..." else "Search subject or title...") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(null to "All", "GCE" to "GCE", "Francophone" to "Francophone").forEach { (v, label) ->
+                    listOf(
+                        null to (if (isFr) "Tous" else "All"),
+                        "GCE" to "GCE",
+                        "Francophone" to "Francophone"
+                    ).forEach { (v, label) ->
                         FilterChip(
                             selected = selectedSystem == v,
                             onClick = { selectedSystem = v },
@@ -251,17 +297,20 @@ fun PastPapersScreen(
                         )
                     }
                 }
-                Spacer(modifier = Modifier.height(6.dp))
-                Text("Level", style = MaterialTheme.typography.labelMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(null to "All", "O-Level" to "O-Level", "A-Level" to "A-Level", "BEPC" to "BEPC", "Bac" to "Bac")
-                        .forEach { (v, label) ->
-                            FilterChip(
-                                selected = selectedLevel == v,
-                                onClick = { selectedLevel = v },
-                                label = { Text(label) }
-                            )
-                        }
+                    listOf(
+                        null to (if (isFr) "Tous" else "All"),
+                        "O-Level" to "O-Level",
+                        "A-Level" to "A-Level",
+                        "BEPC" to "BEPC",
+                        "Bac" to "Bac"
+                    ).forEach { (v, label) ->
+                        FilterChip(
+                            selected = selectedLevel == v,
+                            onClick = { selectedLevel = v },
+                            label = { Text(label) }
+                        )
+                    }
                 }
             }
 
@@ -269,8 +318,8 @@ fun PastPapersScreen(
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     AppEmptyState(
                         icon = Icons.Outlined.Description,
-                        title = "No past papers found",
-                        message = "Try adjusting the system or level filters."
+                        title = if (isFr) "Aucun sujet trouvé" else "No past papers found",
+                        message = if (isFr) "Essaie d'ajuster les filtres." else "Try adjusting the search or filters."
                     )
                 }
             } else {
@@ -279,7 +328,16 @@ fun PastPapersScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(filtered, key = { it.id }) { paper ->
-                        AppSurface(onClick = { previewPaper = paper }) {
+                        val openPaper: () -> Unit = {
+                            scope.launch {
+                                onDownloadPaper(paper)
+                                    .onSuccess { file -> viewingFile = paper to file }
+                                    .onFailure { err ->
+                                        snackbarHostState.showSnackbar(err.message ?: "Download failed")
+                                    }
+                            }
+                        }
+                        AppSurface(onClick = openPaper) {
                             Row(
                                 modifier = Modifier.padding(14.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -299,19 +357,11 @@ fun PastPapersScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                if (paper.isUnlocked) {
-                                    AppBadge(label = "UNLOCKED", tone = BadgeTone.SUCCESS)
+                                if (paper.localFilePath != null) {
+                                    AppBadge(label = "PDF READY", tone = BadgeTone.SUCCESS)
                                 } else {
-                                    IconButton(onClick = {
-                                        val ok = onUnlockPaper(paper.id)
-                                        scope.launch {
-                                            snackbarHostState.showSnackbar(
-                                                if (ok) "Unlocked ${paper.title} (-2 credits)"
-                                                else "Need 2 credits to unlock (you have $creditsBalance). Contribute a document to earn +5!"
-                                            )
-                                        }
-                                    }) {
-                                        Icon(Icons.Outlined.Download, contentDescription = "Unlock & view")
+                                    IconButton(onClick = openPaper, enabled = !loading) {
+                                        Icon(Icons.Outlined.Download, contentDescription = "Download & view")
                                     }
                                 }
                             }
@@ -322,66 +372,149 @@ fun PastPapersScreen(
         }
     }
 
-    previewPaper?.let { paper ->
-        AlertDialog(
-            onDismissRequest = { previewPaper = null },
-            title = { Text(paper.title) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "${paper.examSystem} · ${paper.examLevel} · ${paper.session} ${paper.examYear}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    if (paper.isUnlocked) {
-                        Text("Sample Questions:", style = MaterialTheme.typography.titleSmall)
-                        paper.sampleQuestions.forEach { q ->
-                            Text(q, style = MaterialTheme.typography.bodySmall)
-                        }
-                    } else {
-                        Text(
-                            "Unlock this paper for 2 download credits (Current balance: $creditsBalance credits).",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                if (!paper.isUnlocked) {
-                    Button(onClick = {
-                        val ok = onUnlockPaper(paper.id)
-                        if (ok) {
-                            previewPaper = paper.copy(isUnlocked = true)
-                        } else {
-                            previewPaper = null
-                            scope.launch {
-                                snackbarHostState.showSnackbar("Insufficient credits ($creditsBalance). Contribute notes to earn +5 credits.")
-                            }
-                        }
-                    }) {
-                        Text("Unlock (2 credits)")
-                    }
-                } else {
-                    Button(onClick = { previewPaper = null }) { Text("Close") }
-                }
-            },
-            dismissButton = {
-                if (!paper.isUnlocked) {
-                    TextButton(onClick = { previewPaper = null }) { Text("Cancel") }
-                }
-            }
+    viewingFile?.let { (paper, file) ->
+        PdfViewerDialog(
+            title = paper.title,
+            file = file,
+            isFr = isFr,
+            onDismiss = { viewingFile = null }
         )
     }
 }
 
 @Composable
+private fun PdfViewerDialog(
+    title: String,
+    file: File,
+    isFr: Boolean,
+    onDismiss: () -> Unit
+) {
+    var pageIndex by remember { mutableIntStateOf(0) }
+    var pageCount by remember { mutableIntStateOf(0) }
+    var renderedBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var renderError by remember { mutableStateOf<String?>(null) }
+
+    val holder = remember(file.absolutePath) {
+        runCatching {
+            val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            val renderer = PdfRenderer(pfd)
+            pageCount = renderer.pageCount
+            pfd to renderer
+        }.getOrNull()
+    }
+
+    DisposableEffect(file.absolutePath) {
+        onDispose {
+            holder?.second?.close()
+            holder?.first?.close()
+        }
+    }
+
+    DisposableEffect(holder, pageIndex) {
+        if (holder == null) {
+            renderError = if (isFr) "Fichier non valide ou aperçu impossible." else "Cannot preview PDF on this device."
+        } else if (pageIndex in 0 until holder.second.pageCount) {
+            runCatching {
+                holder.second.openPage(pageIndex).use { page ->
+                    val width = (page.width * 2).coerceAtLeast(720)
+                    val height = (page.height * 2).coerceAtLeast(1000)
+                    val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                    bmp.eraseColor(android.graphics.Color.WHITE)
+                    page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    renderedBitmap = bmp
+                }
+            }.onFailure {
+                renderError = it.message
+            }
+        }
+        onDispose {}
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize().padding(12.dp),
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surface
+        ) {
+            Column(modifier = Modifier.fillMaxSize().padding(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Outlined.Close, contentDescription = "Close")
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val bmp = renderedBitmap
+                    when {
+                        bmp != null -> Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = "PDF page",
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize().padding(4.dp)
+                        )
+                        renderError != null -> Text(
+                            text = renderError!!,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(16.dp)
+                        )
+                        else -> CircularProgressIndicator()
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = { if (pageIndex > 0) pageIndex-- },
+                        enabled = pageIndex > 0
+                    ) {
+                        Text(if (isFr) "Précédente" else "Previous")
+                    }
+                    Text(
+                        text = if (pageCount > 0) "${pageIndex + 1} / $pageCount" else "1 / 1",
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    Button(
+                        onClick = { if (pageIndex < pageCount - 1) pageIndex++ },
+                        enabled = pageIndex < pageCount - 1
+                    ) {
+                        Text(if (isFr) "Suivante" else "Next")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun DocumentsScreen(
+    language: AppLanguage,
     documents: List<ContributedDocument>,
     onContributeNew: () -> Unit,
     onBack: () -> Unit
 ) {
+    val isFr = language == AppLanguage.FR
     Scaffold(
-        topBar = { MindoraTopBar(title = "My contributions", onBack = onBack) }
+        topBar = { MindoraTopBar(title = if (isFr) "Mes contributions" else "My contributions", onBack = onBack) }
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -400,7 +533,7 @@ fun DocumentsScreen(
                                 modifier = Modifier.weight(1f)
                             )
                             AppBadge(
-                                label = if (doc.status == "approved") "APPROVED · +${doc.creditsAwarded}" else "REVIEW",
+                                label = if (doc.status == "approved") "APPROVED · +${doc.creditsAwarded}" else doc.status.uppercase(),
                                 tone = if (doc.status == "approved") BadgeTone.SUCCESS else BadgeTone.WARNING
                             )
                         }
@@ -424,7 +557,7 @@ fun DocumentsScreen(
                     onClick = onContributeNew,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("+ Contribute another document")
+                    Text(if (isFr) "+ Partager un autre document" else "+ Contribute another document")
                 }
             }
         }
@@ -433,10 +566,23 @@ fun DocumentsScreen(
 
 @Composable
 fun ContributeDocumentScreen(
-    onSubmit: (title: String, subject: String, system: String, level: String, description: String, content: String, fileName: String) -> Unit,
+    language: AppLanguage,
+    loading: Boolean,
+    onSubmit: suspend (
+        title: String,
+        subject: String,
+        system: String,
+        level: String,
+        description: String,
+        fileBytes: ByteArray,
+        fileName: String,
+        mimeType: String
+    ) -> Unit,
     onBack: () -> Unit
 ) {
+    val isFr = language == AppLanguage.FR
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var title by remember { mutableStateOf("") }
     var subject by remember { mutableStateOf("Mathematics") }
     var system by remember { mutableStateOf("GCE") }
@@ -444,18 +590,24 @@ fun ContributeDocumentScreen(
     var description by remember { mutableStateOf("") }
     var content by remember { mutableStateOf("") }
     var pickedFileName by remember { mutableStateOf("") }
+    var pickedBytes by remember { mutableStateOf<ByteArray?>(null) }
+    var pickedMime by remember { mutableStateOf("text/plain") }
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) {
-            pickedFileName = uri.lastPathSegment?.substringAfterLast('/') ?: "selected_document.pdf"
-            try {
-                context.contentResolver.openInputStream(uri)?.use { stream ->
-                    val snippet = stream.bufferedReader().readText().take(2000)
-                    if (snippet.isNotBlank() && content.isBlank()) {
-                        content = snippet
-                    }
+            val resolvedName = runCatching {
+                context.contentResolver.query(uri, null, null, null, null)?.use { c ->
+                    val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (c.moveToFirst() && idx >= 0) c.getString(idx) else null
                 }
-            } catch (_: Exception) {
+            }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/') ?: "document.pdf"
+
+            pickedFileName = resolvedName
+            pickedMime = context.contentResolver.getType(uri) ?: "application/pdf"
+            runCatching {
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    pickedBytes = stream.readBytes()
+                }
             }
         }
     }
@@ -463,7 +615,7 @@ fun ContributeDocumentScreen(
     val wordCount = description.trim().split(Regex("\\s+")).count { it.isNotEmpty() }
 
     Scaffold(
-        topBar = { MindoraTopBar(title = "Contribute document", onBack = onBack) }
+        topBar = { MindoraTopBar(title = if (isFr) "Partager un document" else "Contribute document", onBack = onBack) }
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -474,12 +626,16 @@ fun ContributeDocumentScreen(
         ) {
             item {
                 OutlinedButton(
-                    onClick = { filePicker.launch(arrayOf("application/pdf", "text/plain", "*/*")) },
+                    onClick = { filePicker.launch(arrayOf("application/pdf", "text/plain", "image/*")) },
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(Icons.Outlined.UploadFile, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (pickedFileName.isBlank()) "Pick PDF or text file (optional)" else "Selected: $pickedFileName")
+                    Text(
+                        if (pickedFileName.isBlank()) {
+                            if (isFr) "Choisir un PDF ou fichier texte (optionnel)" else "Pick PDF or text file (optional)"
+                        } else "${if (isFr) "Sélectionné" else "Selected"}: $pickedFileName"
+                    )
                 }
             }
 
@@ -487,14 +643,14 @@ fun ContributeDocumentScreen(
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Document title") },
+                    label = { Text(if (isFr) "Titre du document" else "Document title") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
 
             item {
-                Text("Subject", style = MaterialTheme.typography.labelLarge)
+                Text(if (isFr) "Matière" else "Subject", style = MaterialTheme.typography.labelLarge)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf("Mathematics", "Physics", "Chemistry", "Computer Science").forEach { s ->
                         FilterChip(
@@ -522,7 +678,7 @@ fun ContributeDocumentScreen(
                 OutlinedTextField(
                     value = description,
                     onValueChange = { description = it },
-                    label = { Text("Description ($wordCount words)") },
+                    label = { Text("Description ($wordCount ${if (isFr) "mots" else "words"})") },
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -532,7 +688,12 @@ fun ContributeDocumentScreen(
                 OutlinedTextField(
                     value = content,
                     onValueChange = { content = it },
-                    label = { Text("Key notes / summary text (indexed for AI Tutor RAG)") },
+                    label = {
+                        Text(
+                            if (isFr) "Notes / résumé texte (si pas de PDF joint)"
+                            else "Key notes / summary text (if no PDF selected)"
+                        )
+                    },
                     minLines = 4,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -541,14 +702,33 @@ fun ContributeDocumentScreen(
             item {
                 Button(
                     onClick = {
-                        onSubmit(title, subject, system, level, description, content, pickedFileName)
+                        val finalBytes = pickedBytes ?: buildString {
+                            appendLine(title.trim())
+                            if (description.isNotBlank()) appendLine(description.trim())
+                            if (content.isNotBlank()) appendLine(content.trim())
+                        }.toByteArray(Charsets.UTF_8)
+                        val finalName = pickedFileName.ifBlank {
+                            "${title.trim().lowercase().replace(Regex("[^a-z0-9]+"), "_")}.txt"
+                        }
+                        val finalMime = if (pickedBytes != null) pickedMime else "text/plain"
+                        scope.launch {
+                            onSubmit(title, subject, system, level, description, finalBytes, finalName, finalMime)
+                        }
                     },
-                    enabled = title.trim().length >= 3 && (description.isNotBlank() || content.isNotBlank()),
+                    enabled = !loading && title.trim().length >= 3 && (pickedBytes != null || description.isNotBlank() || content.isNotBlank()),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp)
                 ) {
-                    Text("Submit & earn +5 credits")
+                    if (loading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    } else {
+                        Text(if (isFr) "Envoyer et gagner +5 crédits" else "Submit & earn +5 credits")
+                    }
                 }
             }
         }

@@ -22,13 +22,18 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.LocalFireDepartment
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Quiz
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.material.icons.outlined.TrendingDown
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -40,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +54,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.mindora.app.data.AppLanguage
 import com.mindora.app.data.MindoraState
 import com.mindora.app.data.StudySession
 import com.mindora.app.ui.components.AppAvatar
@@ -58,12 +65,15 @@ import com.mindora.app.ui.components.BadgeTone
 import com.mindora.app.ui.components.MindoraTopBar
 import com.mindora.app.ui.theme.MindoraPalette
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.Calendar
 import kotlin.math.roundToInt
 
 @Composable
 fun HomeScreen(
     state: MindoraState,
+    onRefresh: suspend () -> Unit,
+    onOpenNotifications: () -> Unit,
     onStartSession: (String) -> Unit,
     onOpenAi: () -> Unit,
     onOpenMockExams: () -> Unit,
@@ -72,19 +82,42 @@ fun HomeScreen(
     onOpenPastPapers: () -> Unit,
     onOpenStudyGroups: () -> Unit
 ) {
-    val dashboard = remember(state.plans, state.streakDays, state.decks, state.mockExams) {
+    val isFr = state.language == AppLanguage.FR
+    val scope = rememberCoroutineScope()
+    val dashboard = remember(state.dashboardData, state.plans, state.streakDays, state.decks, state.mockExams) {
         state.buildDashboard()
     }
+    val unreadNotifs = state.notifications.count { !it.isRead }
     val hour = remember { Calendar.getInstance().get(Calendar.HOUR_OF_DAY) }
     val greeting = when {
-        hour < 12 -> "Good morning"
-        hour < 18 -> "Good afternoon"
-        else -> "Good evening"
+        hour < 12 -> if (isFr) "Bonjour" else "Good morning"
+        hour < 18 -> if (isFr) "Bon après-midi" else "Good afternoon"
+        else -> if (isFr) "Bonsoir" else "Good evening"
     }
-    val firstName = state.profile.fullName.split(" ").firstOrNull().orEmpty().ifBlank { "student" }
+    val firstName = state.profile.fullName.split(" ").firstOrNull().orEmpty().ifBlank {
+        if (isFr) "étudiant" else "student"
+    }
 
     Scaffold(
-        topBar = { MindoraTopBar(showWordmark = true) }
+        topBar = {
+            MindoraTopBar(
+                showWordmark = true,
+                actions = {
+                    IconButton(onClick = { scope.launch { onRefresh() } }) {
+                        Icon(Icons.Outlined.Refresh, contentDescription = "Sync")
+                    }
+                    IconButton(onClick = onOpenNotifications) {
+                        if (unreadNotifs > 0) {
+                            BadgedBox(badge = { Badge { Text("$unreadNotifs") } }) {
+                                Icon(Icons.Outlined.Notifications, contentDescription = "Notifications")
+                            }
+                        } else {
+                            Icon(Icons.Outlined.Notifications, contentDescription = "Notifications")
+                        }
+                    }
+                }
+            )
+        }
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -106,7 +139,7 @@ fun HomeScreen(
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Welcome, $firstName",
+                            text = if (isFr) "Bienvenue, $firstName" else "Welcome, $firstName",
                             style = MaterialTheme.typography.headlineSmall
                         )
                     }
@@ -140,7 +173,7 @@ fun HomeScreen(
                             Spacer(modifier = Modifier.width(16.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "Your next examination",
+                                    text = if (isFr) "Ton prochain examen" else "Your next examination",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -153,7 +186,8 @@ fun HomeScreen(
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = "${countdown.daysRemaining} days remaining",
+                                    text = if (isFr) "${countdown.daysRemaining} jours restants"
+                                    else "${countdown.daysRemaining} days remaining",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.primary,
                                     fontWeight = FontWeight.SemiBold
@@ -186,11 +220,11 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = "${dashboard.streakDays} ${if (dashboard.streakDays == 1) "day" else "days"}",
+                                text = "${dashboard.streakDays} ${if (isFr) (if (dashboard.streakDays <= 1) "jour" else "jours") else (if (dashboard.streakDays == 1) "day" else "days")}",
                                 style = MaterialTheme.typography.titleMedium
                             )
                             Text(
-                                text = "Study streak",
+                                text = if (isFr) "Série d'étude (Streak)" else "Study streak",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -201,7 +235,7 @@ fun HomeScreen(
 
             dashboard.todayFocus?.let { focus ->
                 item {
-                    Text("Today's focus", style = MaterialTheme.typography.titleMedium)
+                    Text(if (isFr) "Objectif du jour" else "Today's focus", style = MaterialTheme.typography.titleMedium)
                     Spacer(modifier = Modifier.height(10.dp))
                     AppSurface {
                         Column(modifier = Modifier.padding(18.dp)) {
@@ -251,7 +285,7 @@ fun HomeScreen(
                             ) {
                                 Icon(Icons.Outlined.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Start session")
+                                Text(if (isFr) "Démarrer la session" else "Start session")
                             }
                         }
                     }
@@ -261,9 +295,10 @@ fun HomeScreen(
             item {
                 AppSurface {
                     Column(modifier = Modifier.padding(18.dp)) {
-                        Text("Exam readiness", style = MaterialTheme.typography.titleMedium)
+                        Text(if (isFr) "Préparation à l'examen" else "Exam readiness", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            text = "An estimate based on sessions, quizzes, and retention",
+                            text = if (isFr) "Estimation basée sur tes sessions, examens et flashcards"
+                            else "An estimate based on sessions, quizzes, and retention",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -278,10 +313,10 @@ fun HomeScreen(
                                 modifier = Modifier.weight(1f),
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                ReadinessBarRow("Knowledge", dashboard.readinessBreakdown.knowledge)
-                                ReadinessBarRow("Practice", dashboard.readinessBreakdown.practice)
-                                ReadinessBarRow("Retention", dashboard.readinessBreakdown.retention)
-                                ReadinessBarRow("Consistency", dashboard.readinessBreakdown.consistency)
+                                ReadinessBarRow(if (isFr) "Connaissances" else "Knowledge", dashboard.readinessBreakdown.knowledge)
+                                ReadinessBarRow(if (isFr) "Pratique" else "Practice", dashboard.readinessBreakdown.practice)
+                                ReadinessBarRow(if (isFr) "Rétention" else "Retention", dashboard.readinessBreakdown.retention)
+                                ReadinessBarRow(if (isFr) "Régularité" else "Consistency", dashboard.readinessBreakdown.consistency)
                             }
                         }
                     }
@@ -303,7 +338,7 @@ fun HomeScreen(
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Weak topics", style = MaterialTheme.typography.titleMedium)
+                                Text(if (isFr) "Points à renforcer" else "Weak topics", style = MaterialTheme.typography.titleMedium)
                             }
                             dashboard.weakTopics.forEach { t ->
                                 Column {
@@ -348,7 +383,7 @@ fun HomeScreen(
                             modifier = Modifier.padding(18.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Text("Recent activity", style = MaterialTheme.typography.titleMedium)
+                            Text(if (isFr) "Activité récente" else "Recent activity", style = MaterialTheme.typography.titleMedium)
                             dashboard.recentActivity.forEach { a ->
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Box(
@@ -387,15 +422,15 @@ fun HomeScreen(
             }
 
             item {
-                Text("Quick actions", style = MaterialTheme.typography.titleMedium)
+                Text(if (isFr) "Accès rapide" else "Quick actions", style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(10.dp))
                 val actions = listOf(
-                    Triple(Icons.Outlined.AutoAwesome, "Ask AI", onOpenAi),
-                    Triple(Icons.Outlined.Quiz, "Mock exams", onOpenMockExams),
+                    Triple(Icons.Outlined.AutoAwesome, if (isFr) "Tuteur IA" else "Ask AI", onOpenAi),
+                    Triple(Icons.Outlined.Quiz, if (isFr) "Examens blancs" else "Mock exams", onOpenMockExams),
                     Triple(Icons.Outlined.Style, "Flashcards", onOpenFlashcards),
-                    Triple(Icons.Outlined.CalendarToday, "Open planner", onOpenPlanner),
-                    Triple(Icons.Outlined.Description, "Past papers", onOpenPastPapers),
-                    Triple(Icons.Outlined.Groups, "Study groups", onOpenStudyGroups)
+                    Triple(Icons.Outlined.CalendarToday, if (isFr) "Mon planning" else "Open planner", onOpenPlanner),
+                    Triple(Icons.Outlined.Description, if (isFr) "Annales PDF" else "Past papers", onOpenPastPapers),
+                    Triple(Icons.Outlined.Groups, if (isFr) "Groupes" else "Study groups", onOpenStudyGroups)
                 )
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     actions.chunked(2).forEach { pair ->
@@ -467,17 +502,26 @@ private fun QuickActionCard(
 
 @Composable
 fun StudySessionFocusScreen(
+    language: AppLanguage,
     session: StudySession?,
-    onComplete: (String) -> Unit,
+    onStart: suspend (String) -> Unit,
+    onComplete: suspend (String) -> Unit,
     onBack: () -> Unit
 ) {
+    val isFr = language == AppLanguage.FR
+    val scope = rememberCoroutineScope()
+
     if (session == null) {
-        Scaffold(topBar = { MindoraTopBar(title = "Study session", onBack = onBack) }) { padding ->
+        Scaffold(topBar = { MindoraTopBar(title = if (isFr) "Session d'étude" else "Study session", onBack = onBack) }) { padding ->
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text("Session not found.")
+                Text(if (isFr) "Session introuvable." else "Session not found.")
             }
         }
         return
+    }
+
+    LaunchedEffect(session.id) {
+        onStart(session.id)
     }
 
     var remainingSeconds by remember(session.id) { mutableIntStateOf(session.durationMinutes * 60) }
@@ -496,7 +540,7 @@ fun StudySessionFocusScreen(
     val progress = 1f - (remainingSeconds.toFloat() / totalSecs.toFloat())
 
     Scaffold(
-        topBar = { MindoraTopBar(title = "Study session", onBack = onBack) }
+        topBar = { MindoraTopBar(title = if (isFr) "Session d'étude" else "Study session", onBack = onBack) }
     ) { padding ->
         Column(
             modifier = Modifier
@@ -529,19 +573,19 @@ fun StudySessionFocusScreen(
                 OutlinedButton(onClick = { running = !running }) {
                     Icon(Icons.Outlined.Timer, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (running) "Pause timer" else "Resume timer")
+                    Text(if (running) (if (isFr) "Pause" else "Pause timer") else (if (isFr) "Reprendre" else "Resume timer"))
                 }
             }
 
             Button(
-                onClick = { onComplete(session.id) },
+                onClick = { scope.launch { onComplete(session.id) } },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp)
             ) {
                 Icon(Icons.Outlined.Check, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Mark session completed")
+                Text(if (isFr) "Terminer la session" else "Mark session completed")
             }
         }
     }

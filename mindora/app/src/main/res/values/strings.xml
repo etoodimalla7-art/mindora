@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MINDORA</string>
+    <string name="tab_home">Home</string>
+    <string name="tab_ai">AI Tutor</string>
+    <string name="tab_planner">Planner</string>
+    <string name="tab_learn">Learn</string>
+    <string name="tab_profile">Profile</string>
+    <string name="offline_banner">Offline mode — showing cached study data</string>
+    <string name="maintenance_title">Scheduled Maintenance</string>
+    <string name="maintenance_retry">Retry</string>
+    <string name="sign_in">Sign in</string>
+    <string name="create_account">Create account</string>
+    <string name="verify_email_title">Verify your email</string>
+    <string name="support_title">Support &amp; Help</string>
+    <string name="subscriptions_title">Plans &amp; Pro Access</string>
+    <string name="notifications_title">Notifications</string>
+</resources>

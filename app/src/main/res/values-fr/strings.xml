@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MINDORA</string>
+    <string name="tab_home">Accueil</string>
+    <string name="tab_ai">Tuteur IA</string>
+    <string name="tab_planner">Planning</string>
+    <string name="tab_learn">Apprendre</string>
+    <string name="tab_profile">Profil</string>
+    <string name="offline_banner">Mode hors ligne — données en cache affichées</string>
+    <string name="maintenance_title">Maintenance programmée</string>
+    <string name="maintenance_retry">Réessayer</string>
+    <string name="sign_in">Connexion</string>
+    <string name="create_account">Créer un compte</string>
+    <string name="verify_email_title">Vérifier votre e-mail</string>
+    <string name="support_title">Support &amp; Aide</string>
+    <string name="subscriptions_title">Abonnements Pro</string>
+    <string name="notifications_title">Notifications</string>
+</resources>

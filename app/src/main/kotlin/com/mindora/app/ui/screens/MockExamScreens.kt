@@ -28,6 +28,7 @@ import androidx.compose.material.icons.outlined.Grade
 import androidx.compose.material.icons.outlined.Quiz
 import androidx.compose.material.icons.outlined.RemoveCircleOutline
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -51,6 +52,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,6 +70,7 @@ import com.mindora.app.ui.components.ConfirmDialog
 import com.mindora.app.ui.components.MindoraTopBar
 import com.mindora.app.ui.theme.MindoraPalette
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -96,7 +99,7 @@ fun MockExamsListScreen(
                 AppEmptyState(
                     icon = Icons.Outlined.Quiz,
                     title = "No mock exams yet",
-                    message = "Generate a personalized timed exam grounded in your syllabus.",
+                    message = "Generate a personalized timed exam graded on the server.",
                     actionLabel = "Create your first exam",
                     onAction = onCreateExam
                 )
@@ -173,9 +176,12 @@ fun MockExamsListScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateMockExamScreen(
-    onCreate: (title: String, subject: String, level: String, difficulty: String, count: Int, minutes: Int) -> Unit,
+    loading: Boolean,
+    errorMessage: String?,
+    onCreate: suspend (title: String, subject: String, level: String, difficulty: String, count: Int, minutes: Int) -> Unit,
     onBack: () -> Unit
 ) {
+    val scope = rememberCoroutineScope()
     var title by remember { mutableStateOf("Practice exam") }
     var subject by remember { mutableStateOf("Mathematics") }
     var level by remember { mutableStateOf("GCE_AL") }
@@ -199,7 +205,7 @@ fun CreateMockExamScreen(
             item {
                 Text("Configure your exam", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    text = "Questions are generated from your subject bank and course materials.",
+                    text = "Questions are generated on the server from approved course materials and graded server-side.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -285,23 +291,36 @@ fun CreateMockExamScreen(
                 )
             }
 
+            if (!errorMessage.isNullOrBlank()) {
+                item {
+                    Text(errorMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
             item {
                 Button(
                     onClick = {
-                        onCreate(
-                            title.ifBlank { "$subject Practice Exam" },
-                            subject,
-                            level,
-                            difficulty,
-                            questionCount.roundToInt(),
-                            durationMinutes.roundToInt()
-                        )
+                        scope.launch {
+                            onCreate(
+                                title.ifBlank { "$subject Practice Exam" },
+                                subject,
+                                level,
+                                difficulty,
+                                questionCount.roundToInt(),
+                                durationMinutes.roundToInt()
+                            )
+                        }
                     },
+                    enabled = !loading,
                     modifier = Modifier.fillMaxWidth().height(52.dp)
                 ) {
-                    Icon(Icons.Outlined.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Generate exam")
+                    if (loading) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                    } else {
+                        Icon(Icons.Outlined.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Generate exam")
+                    }
                 }
             }
         }
@@ -310,22 +329,31 @@ fun CreateMockExamScreen(
 
 @Composable
 fun TakeMockExamScreen(
+    examId: String,
     exam: MockExam?,
-    onStartExam: (String) -> Unit,
-    onSelectAnswer: (examId: String, questionId: String, answer: String) -> Unit,
-    onSubmitExam: (String) -> Unit,
+    loading: Boolean,
+    onLoadDetail: suspend (String) -> Unit,
+    onStartExam: suspend (String) -> Unit,
+    onSelectAnswer: suspend (examId: String, questionId: String, answer: String) -> Unit,
+    onSubmitExam: suspend (String) -> Unit,
     onBack: () -> Unit
 ) {
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(examId) {
+        onLoadDetail(examId)
+    }
+
     if (exam == null || exam.questions.isEmpty()) {
         Scaffold(topBar = { MindoraTopBar(title = "Mock exam", onBack = onBack) }) { padding ->
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text("Exam not found.")
+                if (loading) CircularProgressIndicator() else Text("Loading exam questions...")
             }
         }
         return
     }
 
-    LaunchedEffect(exam.id) {
+    LaunchedEffect(exam.id, exam.status) {
         if (exam.isReady) onStartExam(exam.id)
     }
 
@@ -343,9 +371,9 @@ fun TakeMockExamScreen(
         }
     }
 
-    val q = exam.questions[index]
+    val q = exam.questions[index.coerceIn(0, exam.questions.lastIndex)]
     val total = exam.questions.size
-    val isLast = index == total - 1
+    val isLast = index >= total - 1
     val selected = exam.answers[q.id]
     val mins = remainingSeconds / 60
     val secs = remainingSeconds % 60
@@ -397,34 +425,50 @@ fun TakeMockExamScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                items(q.options) { opt ->
-                    val isChosen = selected == opt.label
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onSelectAnswer(exam.id, q.id, opt.label) },
-                        shape = RoundedCornerShape(12.dp),
-                        color = if (isChosen) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
-                        else MaterialTheme.colorScheme.surface,
-                        border = BorderStroke(
-                            width = if (isChosen) 1.5.dp else 1.dp,
-                            color = if (isChosen) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
+                if (q.options.isEmpty()) {
+                    item {
+                        OutlinedTextField(
+                            value = selected.orEmpty(),
+                            onValueChange = { ans ->
+                                scope.launch { onSelectAnswer(exam.id, q.id, ans) }
+                            },
+                            label = { Text("Your answer") },
+                            minLines = 2,
+                            modifier = Modifier.fillMaxWidth()
                         )
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                    }
+                } else {
+                    items(q.options) { opt ->
+                        val isChosen = selected.equals(opt.label, ignoreCase = true)
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    scope.launch { onSelectAnswer(exam.id, q.id, opt.label) }
+                                },
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isChosen) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+                            else MaterialTheme.colorScheme.surface,
+                            border = BorderStroke(
+                                width = if (isChosen) 1.5.dp else 1.dp,
+                                color = if (isChosen) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
+                            )
                         ) {
-                            RadioButton(
-                                selected = isChosen,
-                                onClick = { onSelectAnswer(exam.id, q.id, opt.label) }
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = if (q.questionType == "mcq") "${opt.label}. ${opt.text}" else opt.text,
-                                style = MaterialTheme.typography.bodyLarge
-                            )
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = isChosen,
+                                    onClick = { scope.launch { onSelectAnswer(exam.id, q.id, opt.label) } }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (q.questionType == "mcq") "${opt.label}. ${opt.text}" else opt.text,
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                            }
                         }
                     }
                 }
@@ -438,7 +482,7 @@ fun TakeMockExamScreen(
             ) {
                 OutlinedButton(
                     onClick = { if (index > 0) index-- },
-                    enabled = index > 0,
+                    enabled = index > 0 && !loading,
                     modifier = Modifier.weight(1f).height(50.dp)
                 ) {
                     Text("Previous")
@@ -447,12 +491,13 @@ fun TakeMockExamScreen(
                     onClick = {
                         if (isLast) showFinishConfirm = true else index++
                     },
+                    enabled = !loading,
                     modifier = Modifier.weight(1f).height(50.dp)
                 ) {
                     if (isLast) {
                         Icon(Icons.Outlined.Check, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Finish")
+                        Text("Submit & Grade")
                     } else {
                         Text("Next")
                         Spacer(modifier = Modifier.width(6.dp))
@@ -465,12 +510,12 @@ fun TakeMockExamScreen(
 
     if (showFinishConfirm) {
         ConfirmDialog(
-            title = "Finish exam?",
-            message = "You will not be able to change your answers after submitting.",
-            confirmLabel = "Finish",
+            title = "Submit exam?",
+            message = "Your answers will be graded securely on the server.",
+            confirmLabel = "Submit",
             onConfirm = {
                 showFinishConfirm = false
-                onSubmitExam(exam.id)
+                scope.launch { onSubmitExam(exam.id) }
             },
             onDismiss = { showFinishConfirm = false }
         )
@@ -479,16 +524,22 @@ fun TakeMockExamScreen(
 
 @Composable
 fun MockExamResultsScreen(
+    examId: String,
     exam: MockExam?,
+    onLoadDetail: suspend (String) -> Unit,
     onBackToList: () -> Unit,
     onCreateNew: () -> Unit
 ) {
+    LaunchedEffect(examId) {
+        onLoadDetail(examId)
+    }
+
     Scaffold(
         topBar = { MindoraTopBar(title = "Results", onBack = onBackToList) }
     ) { padding ->
         if (exam == null) {
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text("Results not found.")
+                CircularProgressIndicator()
             }
             return@Scaffold
         }
@@ -496,8 +547,7 @@ fun MockExamResultsScreen(
         val score = exam.score ?: 0.0
         val isGood = score >= 60.0
         val ringColor = if (isGood) MindoraPalette.Success else MaterialTheme.colorScheme.primary
-
-        val topicGroups = exam.questions.groupBy { it.topic }
+        val answersByQ = exam.answerResults.associateBy { it.questionId }
 
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
@@ -548,20 +598,17 @@ fun MockExamResultsScreen(
                 }
             }
 
-            if (topicGroups.isNotEmpty()) {
+            if (exam.topicBreakdown.isNotEmpty()) {
                 item {
                     Text("Performance by topic", style = MaterialTheme.typography.titleMedium)
                     Spacer(modifier = Modifier.height(8.dp))
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        topicGroups.forEach { (topic, qs) ->
-                            val right = qs.count { q ->
-                                exam.answers[q.id]?.equals(q.correctAnswer, ignoreCase = true) == true
-                            }
-                            val pct = right.toFloat() / qs.size.coerceAtLeast(1).toFloat()
+                        exam.topicBreakdown.forEach { (topic, stat) ->
+                            val pct = stat.correct.toFloat() / stat.total.coerceAtLeast(1).toFloat()
                             Column {
                                 Row(modifier = Modifier.fillMaxWidth()) {
                                     Text(topic, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                                    Text("$right / ${qs.size}", style = MaterialTheme.typography.labelSmall)
+                                    Text("${stat.correct} / ${stat.total}", style = MaterialTheme.typography.labelSmall)
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 LinearProgressIndicator(
@@ -581,13 +628,14 @@ fun MockExamResultsScreen(
             }
 
             item {
-                Text("Detailed corrections", style = MaterialTheme.typography.titleMedium)
+                Text("Server-graded corrections", style = MaterialTheme.typography.titleMedium)
             }
 
             items(exam.questions, key = { it.id }) { q ->
-                val userAns = exam.answers[q.id]
+                val res = answersByQ[q.id]
+                val userAns = res?.userAnswer ?: exam.answers[q.id]
                 val skipped = userAns.isNullOrBlank()
-                val correct = !skipped && userAns.equals(q.correctAnswer, ignoreCase = true)
+                val correct = res?.isCorrect == true
                 val icon = when {
                     skipped -> Icons.Outlined.RemoveCircleOutline
                     correct -> Icons.Outlined.CheckCircle
@@ -615,24 +663,28 @@ fun MockExamResultsScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = color
                         )
-                        if (!correct) {
+                        val correctAns = res?.correctAnswer ?: q.correctAnswer
+                        if (!correct && !correctAns.isNullOrBlank()) {
                             Text(
-                                text = "Correct: ${q.correctAnswer}",
+                                text = "Correct: $correctAns",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MindoraPalette.Success,
                                 fontWeight = FontWeight.Bold
                             )
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant
-                        ) {
-                            Text(
-                                text = q.explanation,
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.padding(10.dp)
-                            )
+                        val expl = res?.explanation ?: q.explanation
+                        if (!expl.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant
+                            ) {
+                                Text(
+                                    text = expl,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.padding(10.dp)
+                                )
+                            }
                         }
                     }
                 }

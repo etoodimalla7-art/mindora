@@ -1,0 +1,286 @@
+"""Admin DTOs — documents moderation, users management, papers, stats."""
+from __future__ import annotations
+
+import uuid
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+# ===== Documents (existing) =====
+class AdminDocumentRow(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    title: str
+    description: str | None = None
+    owner_email: str
+    owner_id: uuid.UUID | None = None
+    category: str | None = None
+    academic_level: str | None = None
+    language: str = "en"
+    exam_system: str | None = None
+    exam_name: str | None = None
+    exam_year: int | None = None
+    document_type: str | None = None
+    size_bytes: int = 0
+    page_count: int | None = None
+    status: str
+    rejection_reason: str | None = None
+    moderation_notes: str | None = None
+    quality_score: float = 0.0
+    download_count: int = 0
+    original_filename: str
+    mime_type: str
+    archived_at: datetime | None = None
+    archived_by: uuid.UUID | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class ApproveResponse(BaseModel):
+    id: uuid.UUID
+    status: str
+
+
+class RejectRequest(BaseModel):
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class RejectResponse(BaseModel):
+    id: uuid.UUID
+    status: str
+    reason: str
+
+
+# ===== Stats dashboard =====
+class UsersStats(BaseModel):
+    total: int
+    active: int
+    admins: int
+    new_this_week: int
+
+
+class DocumentsStats(BaseModel):
+    total: int
+    pending: int
+    approved: int
+
+
+class PapersStats(BaseModel):
+    total: int
+    published: int
+    draft: int
+
+
+class ActivityStats(BaseModel):
+    sessions_today: int
+    uploads_today: int
+
+
+class AdminStatsOut(BaseModel):
+    users: UsersStats
+    documents: DocumentsStats
+    papers: PapersStats
+    activity: ActivityStats
+
+
+# ===== Users management =====
+class AdminUserRow(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    email: str
+    full_name: str | None
+    is_active: bool
+    is_verified: bool
+    is_admin: bool
+    created_at: datetime
+    last_login_at: datetime | None = None
+
+
+class ToggleActiveResponse(BaseModel):
+    id: uuid.UUID
+    is_active: bool
+
+
+class PromoteResponse(BaseModel):
+    id: uuid.UUID
+    is_admin: bool
+
+
+# ===== Papers =====
+class PaperRow(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    title: str
+    subject: str
+    exam_system: str
+    exam_level: str
+    exam_year: int | None
+    language: str
+    status: str
+    file_name: str
+    file_size: int
+    mime_type: str
+    download_count: int
+    created_at: datetime
+
+
+class PaperDetail(PaperRow):
+    description: str | None = None
+    uploader_id: uuid.UUID
+
+
+class PaperUpdateRequest(BaseModel):
+    """PATCH /admin/papers/{id} — partial update."""
+
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=1000)
+    subject: str | None = Field(default=None, min_length=1, max_length=80)
+    exam_system: str | None = Field(default=None, max_length=40)
+    exam_level: str | None = Field(default=None, max_length=40)
+    exam_year: int | None = Field(default=None, ge=1990, le=2100)
+    language: str | None = Field(default=None, max_length=8)
+    status: str | None = Field(default=None, max_length=20)
+
+
+class PaperUpdate(BaseModel):
+    """Partial update for a paper."""
+
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    subject: str | None = Field(default=None, min_length=1, max_length=80)
+    exam_system: str | None = Field(default=None, max_length=40)
+    exam_level: str | None = Field(default=None, max_length=40)
+    exam_year: int | None = Field(default=None, ge=1990, le=2100)
+    language: str | None = Field(default=None, max_length=8)
+    status: str | None = Field(default=None, max_length=20)
+
+
+# ===== Phase 2 — User detail + suspension =====
+
+class AdminUserDetailOut(BaseModel):
+    """Detailed user view for /admin/users/{id}."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    email: str
+    full_name: str | None
+    preferred_language: str
+    country_code: str
+    is_active: bool
+    is_verified: bool
+    is_admin: bool
+    suspended_at: datetime | None
+    suspended_by: uuid.UUID | None
+    suspension_reason: str | None
+    created_at: datetime
+    last_login_at: datetime | None = None
+    # Stats
+    documents_count: int = 0
+    papers_count: int = 0
+    sessions_count: int = 0
+    roles: list[str] = []
+    # Education
+    education_system: str | None = None
+    education_level: str | None = None
+    education_program: str | None = None
+    subjects: list[str] = []
+
+
+class SuspendUserRequest(BaseModel):
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class BulkActionRequest(BaseModel):
+    user_ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class BulkActionResult(BaseModel):
+    succeeded: int
+    failed: int
+    errors: list[str] = []
+
+
+# ===== Phase 3: Documents extended =====
+
+class ArchiveDocumentRequest(BaseModel):
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class RejectDocumentWithReasonRequest(BaseModel):
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class BulkDocumentActionRequest(BaseModel):
+    document_ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class BulkDocumentActionResult(BaseModel):
+    succeeded: int
+    failed: int
+    errors: list[str] = []
+
+
+# ===== B8: Justified single-student exam reading =====
+
+
+class ExamReadRequestCreate(BaseModel):
+    reason: str = Field(min_length=10, max_length=1000)
+    ticket_id: uuid.UUID | None = None
+    ttl_minutes: int = Field(default=60, ge=5, le=1440)
+
+    @field_validator("reason")
+    @classmethod
+    def check_reason_non_blank(cls, v: str) -> str:
+        cleaned = v.strip()
+        if len(cleaned) < 10:
+            raise ValueError(
+                "Une justification écrite d'au moins 10 caractères est obligatoire."
+            )
+        return cleaned
+
+
+class ExamReadRequestOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    admin_id: uuid.UUID
+    student_id: uuid.UUID
+    reason: str
+    ticket_id: uuid.UUID | None = None
+    expires_at: datetime
+    created_at: datetime
+
+
+class StudentExamAnswerOut(BaseModel):
+    question_id: uuid.UUID
+    position: int
+    question_type: str
+    prompt: str
+    user_answer: str | None = None
+    is_correct: bool | None = None
+    points_awarded: int = 0
+
+
+class StudentExamSummaryOut(BaseModel):
+    id: uuid.UUID
+    title: str
+    subject: str
+    academic_level: str | None = None
+    status: str
+    score: float | None = None
+    question_count: int
+    duration_minutes: int
+    started_at: datetime | None = None
+    submitted_at: datetime | None = None
+    graded_at: datetime | None = None
+    feedback_summary: str | None = None
+    answers: list[StudentExamAnswerOut] = Field(default_factory=list)
+
+
+class StudentExamsReadOut(BaseModel):
+    student_id: uuid.UUID
+    justification_request_id: uuid.UUID
+    reason: str
+    exams: list[StudentExamSummaryOut] = Field(default_factory=list)

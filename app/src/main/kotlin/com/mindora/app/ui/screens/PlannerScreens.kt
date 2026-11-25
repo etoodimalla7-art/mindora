@@ -25,6 +25,7 @@ import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -44,11 +45,13 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import com.mindora.app.data.AppLanguage
 import com.mindora.app.data.SeedCatalog
 import com.mindora.app.data.StudyPlan
 import com.mindora.app.data.StudySession
@@ -58,6 +61,7 @@ import com.mindora.app.ui.components.AppSurface
 import com.mindora.app.ui.components.BadgeTone
 import com.mindora.app.ui.components.MindoraTopBar
 import com.mindora.app.ui.theme.MindoraPalette
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -65,17 +69,19 @@ import kotlin.math.roundToInt
 
 @Composable
 fun PlannerScreen(
+    language: AppLanguage,
     plans: List<StudyPlan>,
     onOpenPlan: (String) -> Unit,
     onCreatePlan: () -> Unit
 ) {
+    val isFr = language == AppLanguage.FR
     Scaffold(
         topBar = { MindoraTopBar(showWordmark = true) },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = onCreatePlan,
                 icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("New plan") }
+                text = { Text(if (isFr) "Nouveau plan" else "New plan") }
             )
         }
     ) { padding ->
@@ -88,9 +94,13 @@ fun PlannerScreen(
             ) {
                 AppEmptyState(
                     icon = Icons.Outlined.CalendarToday,
-                    title = "No study plan yet",
-                    message = "Tell us what examination you are preparing for and we will build your personalized roadmap.",
-                    actionLabel = "Create study plan",
+                    title = if (isFr) "Aucun planning d'étude" else "No study plan yet",
+                    message = if (isFr) {
+                        "Indique quel examen tu prépares pour générer ton programme personnalisé."
+                    } else {
+                        "Tell us what examination you are preparing for and we will build your personalized roadmap."
+                    },
+                    actionLabel = if (isFr) "Créer un plan" else "Create study plan",
                     onAction = onCreatePlan
                 )
             }
@@ -128,7 +138,11 @@ fun PlannerScreen(
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(plan.title, style = MaterialTheme.typography.titleMedium)
                                     Text(
-                                        text = if (isExam) "Exam plan · ${plan.subject}" else "Subject plan · ${plan.subject}",
+                                        text = if (isExam) {
+                                            if (isFr) "Plan d'examen · ${plan.subject}" else "Exam plan · ${plan.subject}"
+                                        } else {
+                                            if (isFr) "Plan matière · ${plan.subject}" else "Subject plan · ${plan.subject}"
+                                        },
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -148,7 +162,11 @@ fun PlannerScreen(
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "${plan.daysRemaining} days left · $formattedDate · $completedCount/${plan.sessions.size} done",
+                                    text = if (isFr) {
+                                        "${plan.daysRemaining} j restants · $formattedDate · $completedCount/${plan.sessions.size} faites"
+                                    } else {
+                                        "${plan.daysRemaining} days left · $formattedDate · $completedCount/${plan.sessions.size} done"
+                                    },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -164,17 +182,20 @@ fun PlannerScreen(
 
 @Composable
 fun PlanDetailScreen(
+    language: AppLanguage,
     plan: StudyPlan?,
-    onCompleteSession: (String) -> Unit,
+    onCompleteSession: suspend (String) -> Unit,
     onStartSession: (String) -> Unit,
     onBack: () -> Unit
 ) {
+    val isFr = language == AppLanguage.FR
+    val scope = rememberCoroutineScope()
     Scaffold(
-        topBar = { MindoraTopBar(title = "Plan", onBack = onBack) }
+        topBar = { MindoraTopBar(title = if (isFr) "Programme" else "Plan", onBack = onBack) }
     ) { padding ->
         if (plan == null) {
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text("Study plan not found.")
+                Text(if (isFr) "Plan d'étude introuvable." else "Study plan not found.")
             }
             return@Scaffold
         }
@@ -193,27 +214,32 @@ fun PlanDetailScreen(
                 Text(plan.title, style = MaterialTheme.typography.headlineSmall)
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "${plan.daysRemaining} days remaining · $formattedDate · ${plan.dailyMinutes} min/day",
+                    text = if (isFr) {
+                        "${plan.daysRemaining} jours restants · $formattedDate · ${plan.dailyMinutes} min/jour"
+                    } else {
+                        "${plan.daysRemaining} days remaining · $formattedDate · ${plan.dailyMinutes} min/day"
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(12.dp))
-                Text("Roadmap", style = MaterialTheme.typography.titleMedium)
+                Text(if (isFr) "Feuille de route" else "Roadmap", style = MaterialTheme.typography.titleMedium)
             }
 
             if (upcoming.isEmpty()) {
                 item {
                     AppEmptyState(
                         icon = Icons.Outlined.CheckCircle,
-                        title = "All sessions complete",
-                        message = "Great work! Create another study plan to keep progressing."
+                        title = if (isFr) "Toutes les sessions terminées" else "All sessions complete",
+                        message = if (isFr) "Bravo ! Crée un nouveau plan pour continuer."
+                        else "Great work! Create another study plan to keep progressing."
                     )
                 }
             } else {
                 items(upcoming, key = { it.id }) { s ->
                     SessionRowCard(
                         session = s,
-                        onComplete = { onCompleteSession(s.id) },
+                        onComplete = { scope.launch { onCompleteSession(s.id) } },
                         onOpen = { onStartSession(s.id) }
                     )
                 }
@@ -222,7 +248,11 @@ fun PlanDetailScreen(
             if (completed.isNotEmpty()) {
                 item {
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("Completed", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        if (isFr) "Terminées" else "Completed",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 items(completed, key = { it.id }) { s ->
                     SessionRowCard(
@@ -276,11 +306,16 @@ private fun SessionRowCard(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreatePlanScreen(
-    onCreate: (planType: String, title: String, subject: String, system: String, level: String, targetDays: Int, dailyMinutes: Int) -> Unit,
+    language: AppLanguage,
+    loading: Boolean,
+    errorMessage: String?,
+    onCreate: suspend (planType: String, title: String, subject: String, system: String, level: String, targetDays: Int, dailyMinutes: Int) -> Unit,
     onBack: () -> Unit
 ) {
+    val isFr = language == AppLanguage.FR
+    val scope = rememberCoroutineScope()
     var planType by remember { mutableStateOf("exam") }
-    var title by remember { mutableStateOf("GCE A-Level Revision") }
+    var title by remember { mutableStateOf(if (isFr) "Révision GCE / Bac" else "GCE A-Level Revision") }
     var subject by remember { mutableStateOf("Mathematics") }
     var system by remember { mutableStateOf("GCE") }
     var level by remember { mutableStateOf("Advanced Level") }
@@ -291,7 +326,7 @@ fun CreatePlanScreen(
     val subjects = SeedCatalog.subjectTopics.keys.toList()
 
     Scaffold(
-        topBar = { MindoraTopBar(title = "Create study plan", onBack = onBack) }
+        topBar = { MindoraTopBar(title = if (isFr) "Créer un plan" else "Create study plan", onBack = onBack) }
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -301,18 +336,18 @@ fun CreatePlanScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                Text("Plan type", style = MaterialTheme.typography.labelLarge)
+                Text(if (isFr) "Type de programme" else "Plan type", style = MaterialTheme.typography.labelLarge)
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     FilterChip(
                         selected = planType == "exam",
                         onClick = { planType = "exam" },
-                        label = { Text("Exam Plan") }
+                        label = { Text(if (isFr) "Plan Examen" else "Exam Plan") }
                     )
                     FilterChip(
                         selected = planType == "subject",
                         onClick = { planType = "subject" },
-                        label = { Text("Subject Mastery") }
+                        label = { Text(if (isFr) "Maîtrise Matière" else "Subject Mastery") }
                     )
                 }
             }
@@ -321,7 +356,7 @@ fun CreatePlanScreen(
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Plan title") },
+                    label = { Text(if (isFr) "Titre du plan" else "Plan title") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -336,7 +371,7 @@ fun CreatePlanScreen(
                         value = subject,
                         onValueChange = {},
                         readOnly = true,
-                        label = { Text("Subject") },
+                        label = { Text(if (isFr) "Matière" else "Subject") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = subjectExpanded) },
                         modifier = Modifier
                             .menuAnchor()
@@ -360,7 +395,7 @@ fun CreatePlanScreen(
             }
 
             item {
-                Text("System & Level", style = MaterialTheme.typography.labelLarge)
+                Text(if (isFr) "Système & Niveau" else "System & Level", style = MaterialTheme.typography.labelLarge)
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     FilterChip(
@@ -377,7 +412,10 @@ fun CreatePlanScreen(
             }
 
             item {
-                Text("Target horizon: $targetDays days", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    if (isFr) "Horizon cible : $targetDays jours" else "Target horizon: $targetDays days",
+                    style = MaterialTheme.typography.labelLarge
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(14, 30, 45, 60).forEach { d ->
                         FilterChip(
@@ -390,7 +428,11 @@ fun CreatePlanScreen(
             }
 
             item {
-                Text("Daily study time: ${dailyMinutes.roundToInt()} min", style = MaterialTheme.typography.labelLarge)
+                Text(
+                    if (isFr) "Temps d'étude quotidien : ${dailyMinutes.roundToInt()} min"
+                    else "Daily study time: ${dailyMinutes.roundToInt()} min",
+                    style = MaterialTheme.typography.labelLarge
+                )
                 Slider(
                     value = dailyMinutes,
                     onValueChange = { dailyMinutes = it },
@@ -399,24 +441,41 @@ fun CreatePlanScreen(
                 )
             }
 
+            if (!errorMessage.isNullOrBlank()) {
+                item {
+                    Text(errorMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
             item {
                 Button(
                     onClick = {
-                        onCreate(
-                            planType,
-                            title.ifBlank { "$subject Study Plan" },
-                            subject,
-                            system,
-                            level,
-                            targetDays,
-                            dailyMinutes.roundToInt()
-                        )
+                        scope.launch {
+                            onCreate(
+                                planType,
+                                title.ifBlank { "$subject Study Plan" },
+                                subject,
+                                system,
+                                level,
+                                targetDays,
+                                dailyMinutes.roundToInt()
+                            )
+                        }
                     },
+                    enabled = !loading,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(52.dp)
                 ) {
-                    Text("Generate personalized roadmap")
+                    if (loading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    } else {
+                        Text(if (isFr) "Générer mon programme" else "Generate personalized roadmap")
+                    }
                 }
             }
         }

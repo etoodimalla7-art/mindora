@@ -1,5 +1,19 @@
 package com.mindora.app.ui.screens
 
+import android.Manifest
+import android.app.Activity
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.provider.OpenableColumns
+import android.speech.RecognizerIntent
+import android.speech.tts.TextToSpeech
+import android.util.Base64
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,8 +43,8 @@ import androidx.compose.material.icons.outlined.AddPhotoAlternate
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.History
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -45,43 +59,155 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import com.mindora.app.data.AppLanguage
 import com.mindora.app.data.ChatMessage
 import com.mindora.app.data.Conversation
+import com.mindora.app.data.VoicePlaybackEvent
 import com.mindora.app.ui.components.AppBadge
 import com.mindora.app.ui.components.AppSurface
 import com.mindora.app.ui.components.BadgeTone
 import com.mindora.app.ui.components.MindoraTopBar
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.util.Locale
+
+private data class PendingVisionPhoto(
+    val fileName: String,
+    val base64: String,
+    val mimeType: String
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AiTutorScreen(
+    language: AppLanguage,
     conversations: List<Conversation>,
     activeConversation: Conversation?,
     sending: Boolean,
-    onSendMessage: (String, String?) -> Unit,
-    onSelectConversation: (String) -> Unit,
+    voicePlayback: SharedFlow<VoicePlaybackEvent>,
+    onSendMessage: suspend (String, String?) -> Unit,
+    onSendVision: suspend (prompt: String, imageBase64: String, mimeType: String, fileName: String) -> Unit,
+    onSendVoiceTranscript: suspend (String) -> Unit,
+    onSelectConversation: suspend (String) -> Unit,
     onNewConversation: () -> Unit
 ) {
+    val isFr = language == AppLanguage.FR
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var input by remember { mutableStateOf("") }
-    var pendingAttachment by remember { mutableStateOf<String?>(null) }
+    var pendingPhoto by remember { mutableStateOf<PendingVisionPhoto?>(null) }
     var showHistorySheet by remember { mutableStateOf(false) }
-    var showAttachDialog by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
-    val messages = activeConversation?.messages.orEmpty()
+    var ttsReady by remember { mutableStateOf(false) }
+    val tts = remember {
+        var instance: TextToSpeech? = null
+        instance = TextToSpeech(context) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                ttsReady = true
+            }
+        }
+        instance
+    }
 
-    LaunchedEffect(messages.size, sending) {
+    DisposableEffect(Unit) {
+        onDispose {
+            tts.stop()
+            tts.shutdown()
+        }
+    }
+
+    LaunchedEffect(voicePlayback) {
+        voicePlayback.collect { ev ->
+            if (ttsReady && ev.text.isNotBlank()) {
+                val loc = if (ev.locale.startsWith("fr", ignoreCase = true)) Locale.FRENCH else Locale.US
+                tts.language = loc
+                tts.speak(ev.text, TextToSpeech.QUEUE_FLUSH, null, "mindora-${System.currentTimeMillis()}")
+            }
+        }
+    }
+
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri != null) {
+            scope.launch {
+                val photo = withContext(Dispatchers.IO) { encodeUriToPhoto(context, uri) }
+                if (photo != null) {
+                    pendingPhoto = photo
+                } else {
+                    Toast.makeText(
+                        context,
+                        if (isFr) "Impossible de lire l'image" else "Could not read selected image",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
+    }
+
+    val speechLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        if (res.resultCode == Activity.RESULT_OK) {
+            val matches = res.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            val transcript = matches?.firstOrNull().orEmpty().trim()
+            if (transcript.isNotEmpty()) {
+                scope.launch { onSendVoiceTranscript(transcript) }
+            }
+        }
+    }
+
+    val startSpeechRecognition = {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, if (isFr) "fr-FR" else "en-US")
+            putExtra(
+                RecognizerIntent.EXTRA_PROMPT,
+                if (isFr) "Pose ta question à MINDORA..." else "Ask MINDORA your question..."
+            )
+        }
+        try {
+            speechLauncher.launch(intent)
+        } catch (_: Exception) {
+            Toast.makeText(
+                context,
+                if (isFr) "Reconnaissance vocale indisponible sur cet appareil." else "Speech recognition unavailable on this device.",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    val micPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            startSpeechRecognition()
+        } else {
+            Toast.makeText(
+                context,
+                if (isFr) "Permission micro requise" else "Microphone permission required",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    val messages = activeConversation?.messages.orEmpty()
+    val lastContentLen = messages.lastOrNull()?.content?.length ?: 0
+
+    LaunchedEffect(messages.size, lastContentLen, sending) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.lastIndex)
         }
@@ -93,10 +219,16 @@ fun AiTutorScreen(
                 showWordmark = true,
                 actions = {
                     IconButton(onClick = { showHistorySheet = true }) {
-                        Icon(Icons.Outlined.History, contentDescription = "Conversations")
+                        Icon(
+                            Icons.Outlined.History,
+                            contentDescription = if (isFr) "Historique" else "Conversations"
+                        )
                     }
                     IconButton(onClick = onNewConversation) {
-                        Icon(Icons.Outlined.Add, contentDescription = "New chat")
+                        Icon(
+                            Icons.Outlined.Add,
+                            contentDescription = if (isFr) "Nouvelle discussion" else "New chat"
+                        )
                     }
                 }
             )
@@ -109,12 +241,21 @@ fun AiTutorScreen(
         ) {
             Box(modifier = Modifier.weight(1f)) {
                 if (messages.isEmpty()) {
-                    val examples = listOf(
-                        "Explain the derivative of x² step by step.",
-                        "What does my course say about differential equations?",
-                        "Give me 3 practice questions on integration by parts.",
-                        "sqrt(144) + 8*3"
-                    )
+                    val examples = if (isFr) {
+                        listOf(
+                            "Explique la dérivée de x² étape par étape.",
+                            "Que dit mon cours sur les équations différentielles ?",
+                            "Donne-moi 3 exercices corrigés sur les nombres complexes.",
+                            "sqrt(144) + 8*3"
+                        )
+                    } else {
+                        listOf(
+                            "Explain the derivative of x² step by step.",
+                            "What does my course say about differential equations?",
+                            "Give me 3 practice questions on integration by parts.",
+                            "sqrt(144) + 8*3"
+                        )
+                    }
                     LazyColumn(
                         contentPadding = PaddingValues(24.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -130,20 +271,24 @@ fun AiTutorScreen(
                             )
                             Spacer(modifier = Modifier.height(14.dp))
                             Text(
-                                text = "Ask me anything",
+                                text = if (isFr) "Pose-moi n'importe quelle question" else "Ask me anything",
                                 style = MaterialTheme.typography.headlineSmall,
                                 textAlign = TextAlign.Center
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "I can explain concepts, solve math expressions, and search the course notes you uploaded.",
+                                text = if (isFr) {
+                                    "Je peux expliquer tes chapitres, analyser une photo d'exercice, répondre à la voix et fouiller tes notes."
+                                } else {
+                                    "I can explain concepts, analyze an exercise photo, answer by voice, and search your uploaded course notes."
+                                },
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center
                             )
                             Spacer(modifier = Modifier.height(24.dp))
                             Text(
-                                text = "Try one of these",
+                                text = if (isFr) "Essaie par exemple" else "Try one of these",
                                 style = MaterialTheme.typography.labelMedium,
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -177,9 +322,17 @@ fun AiTutorScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         items(messages, key = { it.id }) { msg ->
-                            ChatBubbleItem(msg)
+                            ChatBubbleItem(
+                                msg = msg,
+                                onSpeak = { text ->
+                                    if (ttsReady) {
+                                        tts.language = if (isFr) Locale.FRENCH else Locale.US
+                                        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "msg-${msg.id}")
+                                    }
+                                }
+                            )
                         }
-                        if (sending) {
+                        if (sending && messages.lastOrNull()?.content.isNullOrBlank()) {
                             item {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -213,7 +366,10 @@ fun AiTutorScreen(
                                                 strokeWidth = 2.dp
                                             )
                                             Spacer(modifier = Modifier.width(8.dp))
-                                            Text("Thinking...", style = MaterialTheme.typography.bodySmall)
+                                            Text(
+                                                if (isFr) "Réflexion en cours..." else "Thinking...",
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
                                         }
                                     }
                                 }
@@ -223,7 +379,7 @@ fun AiTutorScreen(
                 }
             }
 
-            if (pendingAttachment != null) {
+            pendingPhoto?.let { photo ->
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant,
                     modifier = Modifier.fillMaxWidth()
@@ -233,14 +389,14 @@ fun AiTutorScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Attached: $pendingAttachment",
+                            text = if (isFr) "Photo prête : ${photo.fileName}" else "Photo attached: ${photo.fileName}",
                             style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier.weight(1f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        IconButton(onClick = { pendingAttachment = null }, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Outlined.Close, contentDescription = "Remove attachment", modifier = Modifier.size(16.dp))
+                        IconButton(onClick = { pendingPhoto = null }, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Outlined.Close, contentDescription = "Remove photo", modifier = Modifier.size(16.dp))
                         }
                     }
                 }
@@ -251,37 +407,68 @@ fun AiTutorScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.surface)
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                    .padding(horizontal = 6.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
-                    onClick = { showAttachDialog = true },
+                    onClick = { imagePicker.launch("image/*") },
                     enabled = !sending
                 ) {
-                    Icon(Icons.Outlined.AddPhotoAlternate, contentDescription = "Attach exercise")
+                    Icon(
+                        Icons.Outlined.AddPhotoAlternate,
+                        contentDescription = if (isFr) "Photo exercice" else "Photo exercise"
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        val granted = ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.RECORD_AUDIO
+                        ) == PackageManager.PERMISSION_GRANTED
+                        if (granted) startSpeechRecognition()
+                        else micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    },
+                    enabled = !sending
+                ) {
+                    Icon(
+                        Icons.Outlined.Mic,
+                        contentDescription = if (isFr) "Dictée vocale" else "Voice input"
+                    )
                 }
                 OutlinedTextField(
                     value = input,
                     onValueChange = { input = it },
-                    placeholder = { Text("Ask anything, or about your course...") },
+                    placeholder = {
+                        Text(
+                            if (isFr) "Pose une question ou envoie une photo..."
+                            else "Ask anything, or attach an exercise..."
+                        )
+                    },
                     maxLines = 4,
                     modifier = Modifier.weight(1f)
                 )
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(6.dp))
                 IconButton(
                     onClick = {
                         val text = input
-                        val att = pendingAttachment
-                        if (text.isNotBlank() || att != null) {
+                        val photo = pendingPhoto
+                        if (photo != null) {
                             input = ""
-                            pendingAttachment = null
-                            onSendMessage(text, att)
+                            pendingPhoto = null
+                            scope.launch {
+                                onSendVision(text, photo.base64, photo.mimeType, photo.fileName)
+                            }
+                        } else if (text.isNotBlank()) {
+                            input = ""
+                            scope.launch {
+                                onSendMessage(text, null)
+                            }
                         }
                     },
-                    enabled = !sending && (input.isNotBlank() || pendingAttachment != null),
+                    enabled = !sending && (input.isNotBlank() || pendingPhoto != null),
                     colors = IconButtonDefaults.filledIconButtonColors()
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = if (isFr) "Envoyer" else "Send")
                 }
             }
         }
@@ -295,18 +482,19 @@ fun AiTutorScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Conversations", style = MaterialTheme.typography.titleLarge)
+                    Text(if (isFr) "Historique" else "Conversations", style = MaterialTheme.typography.titleLarge)
                     TextButton(onClick = {
                         onNewConversation()
                         showHistorySheet = false
                     }) {
-                        Text("+ New chat")
+                        Text(if (isFr) "+ Nouveau chat" else "+ New chat")
                     }
                 }
                 Spacer(modifier = Modifier.height(12.dp))
                 if (conversations.isEmpty()) {
                     Text(
-                        "No conversations yet. Ask a question to get started.",
+                        if (isFr) "Aucune conversation. Pose une question pour commencer."
+                        else "No conversations yet. Ask a question to get started.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -315,7 +503,7 @@ fun AiTutorScreen(
                         AppSurface(
                             modifier = Modifier.padding(bottom = 8.dp),
                             onClick = {
-                                onSelectConversation(conv.id)
+                                scope.launch { onSelectConversation(conv.id) }
                                 showHistorySheet = false
                             }
                         ) {
@@ -344,42 +532,14 @@ fun AiTutorScreen(
             }
         }
     }
-
-    if (showAttachDialog) {
-        var noteTitle by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { showAttachDialog = false },
-            title = { Text("Attach exercise or page") },
-            text = {
-                OutlinedTextField(
-                    value = noteTitle,
-                    onValueChange = { noteTitle = it },
-                    label = { Text("Exercise reference or topic") },
-                    placeholder = { Text("e.g., GCE 2024 Paper 2 Q3") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            confirmButton = {
-                Button(onClick = {
-                    if (noteTitle.isNotBlank()) {
-                        pendingAttachment = noteTitle.trim()
-                    }
-                    showAttachDialog = false
-                }) {
-                    Text("Attach")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAttachDialog = false }) { Text("Cancel") }
-            }
-        )
-    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ChatBubbleItem(msg: ChatMessage) {
+private fun ChatBubbleItem(
+    msg: ChatMessage,
+    onSpeak: (String) -> Unit
+) {
     val isUser = msg.isUser
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -419,7 +579,7 @@ private fun ChatBubbleItem(msg: ChatMessage) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     if (msg.attachmentLabel != null) {
                         Text(
-                            text = "[Attached: ${msg.attachmentLabel}]",
+                            text = "[${msg.attachmentLabel}]",
                             style = MaterialTheme.typography.labelSmall,
                             color = if (isUser) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)
                             else MaterialTheme.colorScheme.primary
@@ -427,10 +587,28 @@ private fun ChatBubbleItem(msg: ChatMessage) {
                         Spacer(modifier = Modifier.height(4.dp))
                     }
                     Text(
-                        text = msg.content,
+                        text = msg.content.ifBlank { "..." },
                         style = MaterialTheme.typography.bodyMedium,
                         color = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
                     )
+                    if (!isUser && msg.content.isNotBlank()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            IconButton(
+                                onClick = { onSpeak(msg.content) },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.VolumeUp,
+                                    contentDescription = "Listen",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
             if (!isUser && msg.toolsUsed.isNotEmpty()) {
@@ -446,4 +624,44 @@ private fun ChatBubbleItem(msg: ChatMessage) {
             }
         }
     }
+}
+
+private fun encodeUriToPhoto(context: android.content.Context, uri: Uri): PendingVisionPhoto? {
+    val fileName = runCatching {
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (cursor.moveToFirst() && idx >= 0) cursor.getString(idx) else null
+        }
+    }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/') ?: "exercise.jpg"
+
+    val rawBytes = runCatching {
+        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+    }.getOrNull() ?: return null
+
+    val bmp = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size)
+    val finalBytes = if (bmp != null) {
+        val maxDim = 1280
+        val scale = if (bmp.width > maxDim || bmp.height > maxDim) {
+            minOf(maxDim.toFloat() / bmp.width, maxDim.toFloat() / bmp.height)
+        } else 1f
+        val resized = if (scale < 1f) {
+            Bitmap.createScaledBitmap(bmp, (bmp.width * scale).toInt(), (bmp.height * scale).toInt(), true)
+        } else bmp
+        val out = ByteArrayOutputStream()
+        var quality = 85
+        resized.compress(Bitmap.CompressFormat.JPEG, quality, out)
+        while (out.size() > 950_000 && quality > 35) {
+            out.reset()
+            quality -= 15
+            resized.compress(Bitmap.CompressFormat.JPEG, quality, out)
+        }
+        out.toByteArray()
+    } else {
+        rawBytes
+    }
+    return PendingVisionPhoto(
+        fileName = fileName,
+        base64 = Base64.encodeToString(finalBytes, Base64.NO_WRAP),
+        mimeType = "image/jpeg"
+    )
 }

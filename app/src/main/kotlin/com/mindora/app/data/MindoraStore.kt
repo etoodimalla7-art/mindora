@@ -1,287 +1,260 @@
 package com.mindora.app.data
 
 import android.content.Context
-import android.content.SharedPreferences
-import com.mindora.app.BuildConfig
+import com.google.gson.Gson
+import com.mindora.app.core.db.OfflineCacheDb
+import com.mindora.app.core.network.ApiClient
+import com.mindora.app.core.network.ApiModelsMapper
+import com.mindora.app.core.network.ChatRequestDto
+import com.mindora.app.core.network.CheckoutRequestDto
+import com.mindora.app.core.network.ConfirmRequestDto
+import com.mindora.app.core.network.CreateMockExamDto
+import com.mindora.app.core.network.DeckCreateDto
+import com.mindora.app.core.network.EducationUpdateDto
+import com.mindora.app.core.network.ExamPlanCreateDto
+import com.mindora.app.core.network.FlashcardCreateDto
+import com.mindora.app.core.network.GroupMessageCreateDto
+import com.mindora.app.core.network.GroupWebSocketClient
+import com.mindora.app.core.network.LoginRequestDto
+import com.mindora.app.core.network.NotificationPrefUpdateDto
+import com.mindora.app.core.network.RefreshRequestDto
+import com.mindora.app.core.network.RegisterRequestDto
+import com.mindora.app.core.network.ReviewCardRequestDto
+import com.mindora.app.core.network.SendOtpRequestDto
+import com.mindora.app.core.network.SessionCompleteDto
+import com.mindora.app.core.network.SseChatClient
+import com.mindora.app.core.network.SseChatEvent
+import com.mindora.app.core.network.StudyGroupCreateDto
+import com.mindora.app.core.network.SubjectPlanCreateDto
+import com.mindora.app.core.network.SubmitAnswerDto
+import com.mindora.app.core.network.SubmitDocumentDto
+import com.mindora.app.core.network.TicketCreateDto
+import com.mindora.app.core.network.TicketRespondDto
+import com.mindora.app.core.network.VerifyOtpRequestDto
+import com.mindora.app.core.network.VisionAnalyzeRequestDto
+import com.mindora.app.core.network.VoiceAnalyzeRequestDto
+import com.mindora.app.core.storage.SecureTokenStore
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URL
+import retrofit2.HttpException
+import java.io.File
+import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import java.util.UUID
-import kotlin.math.cos
-import kotlin.math.pow
-import kotlin.math.roundToInt
-import kotlin.math.sin
-import kotlin.math.sqrt
 
 data class MindoraState(
-    val isAuthenticated: Boolean = true,
+    val isAuthenticated: Boolean = false,
+    val isLoading: Boolean = false,
+    val isOffline: Boolean = false,
+    val maintenance: MaintenanceStatus = MaintenanceStatus(),
+    val pendingOtpEmail: String? = null,
+    val errorMessage: String? = null,
+    val infoMessage: String? = null,
     val profile: UserProfile = UserProfile(),
     val themeMode: ThemeModeSetting = ThemeModeSetting.SYSTEM,
     val language: AppLanguage = AppLanguage.EN,
-    val streakDays: Int = 5,
-    val creditsBalance: Int = 18,
-    val plans: List<StudyPlan> = SeedCatalog.initialPlans(),
+    val streakDays: Int = 0,
+    val creditsBalance: Int = 0,
+    val dashboardData: DashboardData? = null,
+    val topicMasteries: List<TopicMasteryItem> = emptyList(),
+    val totalMinutesStudied: Int = 0,
+    val sessionsCompleted: Int = 0,
+    val mockExamsCompleted: Int = 0,
+    val averageExamScore: Double? = null,
+    val plans: List<StudyPlan> = emptyList(),
     val conversations: List<Conversation> = emptyList(),
     val activeConversationId: String? = null,
     val aiSending: Boolean = false,
-    val decks: List<Deck> = SeedCatalog.initialDecks(),
-    val mockExams: List<MockExam> = SeedCatalog.initialMockExams(),
-    val pastPapers: List<PastPaper> = SeedCatalog.initialPastPapers(),
-    val documents: List<ContributedDocument> = SeedCatalog.initialDocuments(),
-    val studyGroups: List<StudyGroup> = SeedCatalog.initialStudyGroups()
+    val decks: List<Deck> = emptyList(),
+    val mockExams: List<MockExam> = emptyList(),
+    val pastPapers: List<PastPaper> = emptyList(),
+    val documents: List<ContributedDocument> = emptyList(),
+    val studyGroups: List<StudyGroup> = emptyList(),
+    val activeGroupPresence: Int = 1,
+    val plansCatalog: List<SubscriptionPlan> = emptyList(),
+    val activeSubscription: ActiveSubscription? = null,
+    val notifications: List<AppNotification> = emptyList(),
+    val notificationPrefs: NotificationPrefs = NotificationPrefs(),
+    val tickets: List<SupportTicket> = emptyList(),
+    val activeTicket: SupportTicket? = null
 ) {
     val activeConversation: Conversation?
         get() = conversations.find { it.id == activeConversationId }
 
     fun buildDashboard(): DashboardData {
+        dashboardData?.let { return it }
         val allSessions = plans.flatMap { it.sessions }
         val scheduled = allSessions.filter { !it.isCompleted }.sortedBy { it.scheduledForMillis }
         val completed = allSessions.filter { it.isCompleted }.sortedByDescending { it.scheduledForMillis }
-        val nextSession = scheduled.firstOrNull()
-
         val activeExamPlan = plans.firstOrNull { it.isActive && it.planType == "exam" }
             ?: plans.firstOrNull { it.isActive }
-
         val countdown = activeExamPlan?.let {
-            ExamCountdown(
-                examName = it.title,
-                targetDateMillis = it.targetDateMillis,
-                daysRemaining = it.daysRemaining
-            )
+            ExamCountdown(it.title, it.targetDateMillis, it.daysRemaining)
         }
-
-        val todayFocus = nextSession?.let {
-            TodayFocus(
-                sessionId = it.id,
-                title = it.title,
-                subject = it.subject,
-                topic = it.topic,
-                objective = it.objective,
-                durationMinutes = it.durationMinutes
-            )
+        val focus = scheduled.firstOrNull()?.let {
+            TodayFocus(it.id, it.title, it.subject, it.topic, it.objective, it.durationMinutes)
         }
-
-        val totalSessions = allSessions.size.coerceAtLeast(1)
-        val completedRatio = completed.size.toFloat() / totalSessions.toFloat()
-        val gradedExams = mockExams.filter { it.isGraded && it.score != null }
-        val examAvg = if (gradedExams.isNotEmpty()) {
-            (gradedExams.mapNotNull { it.score }.average() / 100.0).toFloat()
-        } else 0.65f
-        val totalCards = decks.sumOf { it.cardCount }.coerceAtLeast(1)
-        val reviewedCards = decks.flatMap { it.cards }.count { it.repetitions > 0 }
-        val retentionRatio = (0.55f + (reviewedCards.toFloat() / totalCards.toFloat()) * 0.45f).coerceIn(0f, 1f)
-        val consistencyRatio = (0.4f + (streakDays.coerceAtMost(14) / 14f) * 0.6f).coerceIn(0f, 1f)
-        val knowledgeRatio = (0.5f + completedRatio * 0.5f).coerceIn(0f, 1f)
-
-        val readiness = ((knowledgeRatio * 0.25f + examAvg * 0.3f + retentionRatio * 0.25f + consistencyRatio * 0.2f) * 100f)
-            .roundToInt()
-            .coerceIn(0, 100)
-
-        val weakTopics = listOf(
-            WeakTopic("Mathematics", "Differential Equations", 0.42f),
-            WeakTopic("Physics", "Quantum & Nuclear Physics", 0.51f),
-            WeakTopic("Computer Science", "Database Normalization", 0.58f)
-        )
-
         val recent = completed.take(4).map {
-            RecentActivity(
-                sessionId = it.id,
-                title = it.title,
-                subject = it.subject,
-                durationMinutes = it.durationMinutes,
-                completedAtMillis = it.scheduledForMillis
-            )
+            RecentActivity(it.id, it.title, it.subject, it.durationMinutes, it.scheduledForMillis)
         }
-
         return DashboardData(
             streakDays = streakDays,
             examCountdown = countdown,
-            todayFocus = todayFocus,
-            readinessScore = readiness,
-            readinessBreakdown = ReadinessBreakdown(
-                knowledge = knowledgeRatio,
-                practice = examAvg,
-                retention = retentionRatio,
-                consistency = consistencyRatio
-            ),
-            weakTopics = weakTopics,
+            todayFocus = focus,
+            readinessScore = 0,
+            readinessBreakdown = ReadinessBreakdown(),
+            weakTopics = emptyList(),
             recentActivity = recent
         )
     }
 }
 
-class MindoraStore(context: Context) {
-    private val prefs: SharedPreferences =
-        context.applicationContext.getSharedPreferences("mindora_prefs_v1", Context.MODE_PRIVATE)
+data class VoicePlaybackEvent(
+    val text: String,
+    val locale: String
+)
 
-    private val _state = MutableStateFlow(loadInitialState())
+class MindoraStore(context: Context) {
+    private val appContext = context.applicationContext
+    private val prefs = appContext.getSharedPreferences("mindora_ui_prefs", Context.MODE_PRIVATE)
+    val tokenStore = SecureTokenStore(appContext)
+    private val cacheDb = OfflineCacheDb(appContext)
+    private val gson = Gson()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val apiClient = ApiClient(tokenStore) {
+        scope.launch {
+            cacheDb.clearAll()
+            _state.update {
+                MindoraState(
+                    isAuthenticated = false,
+                    themeMode = it.themeMode,
+                    language = it.language,
+                    errorMessage = if (it.language == AppLanguage.FR) {
+                        "Session expirée. Veuillez vous reconnecter."
+                    } else {
+                        "Session expired. Please sign in again."
+                    }
+                )
+            }
+        }
+    }
+
+    private val sseClient = SseChatClient(apiClient.okHttpClient, tokenStore)
+    private val groupWsClient = GroupWebSocketClient(apiClient.okHttpClient, tokenStore)
+
+    private val _state = MutableStateFlow(loadInitialCachedState())
     val state: StateFlow<MindoraState> = _state.asStateFlow()
 
-    private fun loadInitialState(): MindoraState {
-        val raw = prefs.getString("state_json", null)
-        if (raw.isNullOrBlank()) return MindoraState()
-        return try {
-            val j = JSONObject(raw)
-            val pJson = j.optJSONObject("profile")
-            val profile = if (pJson != null) {
-                UserProfile(
-                    id = pJson.optString("id", "student-1"),
-                    fullName = pJson.optString("fullName", "Alex Mbarga"),
-                    email = pJson.optString("email", "alex.mbarga@mindora.edu"),
-                    isVerified = pJson.optBoolean("isVerified", true),
-                    preferredLanguage = AppLanguage.fromCode(pJson.optString("preferredLanguage", "en")),
-                    countryCode = pJson.optString("countryCode", "CM"),
-                    educationSystem = pJson.optString("educationSystem", "Anglophone"),
-                    level = pJson.optString("level", "GCE Advanced Level"),
-                    program = pJson.optString("program", "Science"),
-                    subjects = jsonArrayToList(pJson.optJSONArray("subjects")).ifEmpty {
-                        listOf("Mathematics", "Physics", "Computer Science")
-                    },
-                    goal = pJson.optString("goal", "pass_exam"),
-                    targetExamDateMillis = pJson.optLong(
-                        "targetExamDateMillis",
-                        System.currentTimeMillis() + 42L * 86_400_000L
-                    ),
-                    studyWindows = jsonArrayToList(pJson.optJSONArray("studyWindows")).ifEmpty {
-                        listOf("evening")
-                    },
-                    explanationStyle = pJson.optString("explanationStyle", "standard"),
-                    allowNotifications = pJson.optBoolean("allowNotifications", true),
-                    onboardingCompleted = pJson.optBoolean("onboardingCompleted", false)
-                )
-            } else UserProfile()
+    private val _voicePlayback = MutableSharedFlow<VoicePlaybackEvent>(extraBufferCapacity = 4)
+    val voicePlayback: SharedFlow<VoicePlaybackEvent> = _voicePlayback.asSharedFlow()
 
-            val themeMode = ThemeModeSetting.fromId(j.optString("themeMode", "system"))
-            val language = AppLanguage.fromCode(j.optString("language", "en"))
-            val streakDays = j.optInt("streakDays", 5)
-            val creditsBalance = j.optInt("creditsBalance", 18)
-            val isAuthenticated = j.optBoolean("isAuthenticated", true)
-
-            val plans = parsePlans(j.optJSONArray("plans")) ?: SeedCatalog.initialPlans()
-            val decks = parseDecks(j.optJSONArray("decks")) ?: SeedCatalog.initialDecks()
-            val docs = parseDocuments(j.optJSONArray("documents")) ?: SeedCatalog.initialDocuments()
-            val exams = parseMockExams(j.optJSONArray("mockExams")) ?: SeedCatalog.initialMockExams()
-            val convos = parseConversations(j.optJSONArray("conversations")) ?: emptyList()
-
-            val unlockedPaperIds = jsonArrayToList(j.optJSONArray("unlockedPaperIds")).toSet()
-            val papers = SeedCatalog.initialPastPapers().map { p ->
-                if (unlockedPaperIds.contains(p.id)) p.copy(isUnlocked = true) else p
+    init {
+        scope.launch {
+            checkMaintenance()
+            loadPublicPlans()
+            if (tokenStore.hasTokens()) {
+                flushPendingOfflineActions()
+                refreshAllFromServer()
             }
+        }
+    }
 
-            MindoraState(
-                isAuthenticated = isAuthenticated,
-                profile = profile,
+    private fun loadInitialCachedState(): MindoraState {
+        val themeMode = ThemeModeSetting.fromId(prefs.getString("theme_mode", "system"))
+        val language = AppLanguage.fromCode(prefs.getString("language", "en"))
+        val hasSession = tokenStore.hasTokens()
+        if (!hasSession) {
+            return MindoraState(
+                isAuthenticated = false,
                 themeMode = themeMode,
-                language = language,
-                streakDays = streakDays,
-                creditsBalance = creditsBalance,
-                plans = plans,
-                conversations = convos,
-                activeConversationId = convos.firstOrNull()?.id,
-                decks = decks,
-                mockExams = exams,
-                pastPapers = papers,
-                documents = docs,
-                studyGroups = SeedCatalog.initialStudyGroups()
+                language = language
             )
-        } catch (_: Exception) {
-            MindoraState()
         }
+        val cached = cacheDb.getObject("full_state", CachedSnapshot::class.java)
+        return MindoraState(
+            isAuthenticated = true,
+            themeMode = themeMode,
+            language = cached?.profile?.preferredLanguage ?: language,
+            profile = cached?.profile ?: UserProfile(email = tokenStore.userEmail.orEmpty()),
+            streakDays = cached?.streakDays ?: 0,
+            creditsBalance = cached?.creditsBalance ?: 0,
+            dashboardData = cached?.dashboardData,
+            plans = cached?.plans ?: emptyList(),
+            decks = cached?.decks ?: emptyList(),
+            mockExams = cached?.mockExams ?: emptyList(),
+            pastPapers = cached?.pastPapers ?: emptyList(),
+            documents = cached?.documents ?: emptyList(),
+            studyGroups = cached?.studyGroups ?: emptyList(),
+            conversations = cached?.conversations ?: emptyList()
+        )
     }
 
-    private fun persist(s: MindoraState) {
-        try {
-            val root = JSONObject()
-            root.put("isAuthenticated", s.isAuthenticated)
-            root.put("themeMode", s.themeMode.id)
-            root.put("language", s.language.code)
-            root.put("streakDays", s.streakDays)
-            root.put("creditsBalance", s.creditsBalance)
-
-            val p = JSONObject().apply {
-                put("id", s.profile.id)
-                put("fullName", s.profile.fullName)
-                put("email", s.profile.email)
-                put("isVerified", s.profile.isVerified)
-                put("preferredLanguage", s.profile.preferredLanguage.code)
-                put("countryCode", s.profile.countryCode)
-                put("educationSystem", s.profile.educationSystem)
-                put("level", s.profile.level)
-                put("program", s.profile.program)
-                put("subjects", JSONArray(s.profile.subjects))
-                put("goal", s.profile.goal)
-                put("targetExamDateMillis", s.profile.targetExamDateMillis)
-                put("studyWindows", JSONArray(s.profile.studyWindows))
-                put("explanationStyle", s.profile.explanationStyle)
-                put("allowNotifications", s.profile.allowNotifications)
-                put("onboardingCompleted", s.profile.onboardingCompleted)
-            }
-            root.put("profile", p)
-            root.put("plans", serializePlans(s.plans))
-            root.put("decks", serializeDecks(s.decks))
-            root.put("documents", serializeDocuments(s.documents))
-            root.put("mockExams", serializeMockExams(s.mockExams))
-            root.put("conversations", serializeConversations(s.conversations))
-            root.put("unlockedPaperIds", JSONArray(s.pastPapers.filter { it.isUnlocked }.map { it.id }))
-            prefs.edit().putString("state_json", root.toString()).apply()
-        } catch (_: Exception) {
-        }
+    private fun saveCachedSnapshot(s: MindoraState) {
+        if (!s.isAuthenticated) return
+        val snapshot = CachedSnapshot(
+            profile = s.profile,
+            streakDays = s.streakDays,
+            creditsBalance = s.creditsBalance,
+            dashboardData = s.dashboardData,
+            plans = s.plans,
+            decks = s.decks,
+            mockExams = s.mockExams,
+            pastPapers = s.pastPapers,
+            documents = s.documents,
+            studyGroups = s.studyGroups,
+            conversations = s.conversations
+        )
+        cacheDb.putJson("full_state", snapshot)
     }
 
-    private fun updateAndPersist(transform: (MindoraState) -> MindoraState) {
+    private fun updateAndCache(transform: (MindoraState) -> MindoraState) {
         _state.update { current ->
             val next = transform(current)
-            persist(next)
+            saveCachedSnapshot(next)
             next
         }
     }
 
-    // --- Auth & Onboarding ---
-
-    fun signIn(email: String, fullName: String? = null) {
-        updateAndPersist { s ->
-            val name = fullName?.takeIf { it.isNotBlank() }
-                ?: email.substringBefore("@").replace(".", " ").replaceFirstChar { it.uppercase() }
-            s.copy(
-                isAuthenticated = true,
-                profile = s.profile.copy(
-                    email = email.trim(),
-                    fullName = name,
-                    onboardingCompleted = true
-                )
-            )
-        }
+    fun clearBannerMessages() {
+        _state.update { it.copy(errorMessage = null, infoMessage = null) }
     }
 
-    fun signOut() {
-        updateAndPersist { s ->
-            s.copy(isAuthenticated = false)
-        }
-    }
+    fun getApiBaseUrl(): String = tokenStore.apiBaseUrl
 
-    fun updateProfile(profile: UserProfile) {
-        updateAndPersist { s ->
-            s.copy(
-                profile = profile,
-                language = profile.preferredLanguage
-            )
-        }
+    fun updateApiBaseUrl(url: String) {
+        apiClient.updateBaseUrl(url)
+        _state.update { it.copy(infoMessage = "API URL updated") }
     }
 
     fun setThemeMode(mode: ThemeModeSetting) {
-        updateAndPersist { it.copy(themeMode = mode) }
+        prefs.edit().putString("theme_mode", mode.id).apply()
+        _state.update { it.copy(themeMode = mode) }
     }
 
     fun setLanguage(lang: AppLanguage) {
-        updateAndPersist { s ->
+        prefs.edit().putString("language", lang.code).apply()
+        updateAndCache { s ->
             s.copy(
                 language = lang,
                 profile = s.profile.copy(preferredLanguage = lang)
@@ -289,990 +262,1255 @@ class MindoraStore(context: Context) {
         }
     }
 
-    // --- Planner & Study Sessions ---
+    // --- Boot / Maintenance / Public Plans ---
 
-    fun completeSession(sessionId: String) {
-        updateAndPersist { s ->
-            val wasAlreadyDone = s.plans.flatMap { it.sessions }.find { it.id == sessionId }?.isCompleted == true
-            val updatedPlans = s.plans.map { plan ->
-                plan.copy(
-                    sessions = plan.sessions.map { sess ->
-                        if (sess.id == sessionId) sess.copy(status = "completed") else sess
-                    }
+    suspend fun checkMaintenance() {
+        try {
+            val m = apiClient.api.getMaintenance()
+            _state.update {
+                it.copy(
+                    maintenance = MaintenanceStatus(m.enabled, m.message, m.eta),
+                    isOffline = false
                 )
             }
-            s.copy(
-                plans = updatedPlans,
-                streakDays = if (wasAlreadyDone) s.streakDays else s.streakDays + 1
+        } catch (_: Exception) {
+        }
+    }
+
+    suspend fun loadPublicPlans() {
+        try {
+            val plans = apiClient.api.listPublicPlans().map { ApiModelsMapper.toSubscriptionPlan(it) }
+            _state.update { it.copy(plansCatalog = plans) }
+        } catch (_: Exception) {
+        }
+    }
+
+    // --- Auth & Email OTP & Onboarding ---
+
+    suspend fun signIn(email: String, password: String): Result<Unit> = withContext(Dispatchers.IO) {
+        _state.update { it.copy(isLoading = true, errorMessage = null) }
+        try {
+            val resp = apiClient.api.login(LoginRequestDto(email.trim(), password))
+            tokenStore.saveSession(
+                access = resp.tokens.accessToken,
+                refresh = resp.tokens.refreshToken,
+                id = resp.user.id,
+                email = resp.user.email
+            )
+            val profile = ApiModelsMapper.toUserProfile(resp.user)
+            prefs.edit().putString("language", profile.preferredLanguage.code).apply()
+            _state.update {
+                it.copy(
+                    isAuthenticated = true,
+                    isLoading = false,
+                    isOffline = false,
+                    profile = profile,
+                    language = profile.preferredLanguage
+                )
+            }
+            refreshAllFromServer()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            val msg = extractErrorMessage(e)
+            _state.update { it.copy(isLoading = false, errorMessage = msg) }
+            Result.failure(Exception(msg))
+        }
+    }
+
+    suspend fun register(fullName: String, email: String, password: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            _state.update { it.copy(isLoading = true, errorMessage = null) }
+            try {
+                val lang = _state.value.language.code
+                val resp = apiClient.api.register(
+                    RegisterRequestDto(
+                        email = email.trim(),
+                        password = password,
+                        fullName = fullName.trim(),
+                        preferredLanguage = lang,
+                        countryCode = "CM"
+                    )
+                )
+                tokenStore.saveSession(
+                    access = resp.tokens.accessToken,
+                    refresh = resp.tokens.refreshToken,
+                    id = resp.user.id,
+                    email = resp.user.email
+                )
+                runCatching {
+                    apiClient.api.sendOtp(SendOtpRequestDto(email = email.trim(), purpose = "verify_email"))
+                }
+                val profile = ApiModelsMapper.toUserProfile(resp.user)
+                _state.update {
+                    it.copy(
+                        isAuthenticated = true,
+                        isLoading = false,
+                        isOffline = false,
+                        pendingOtpEmail = resp.user.email,
+                        profile = profile
+                    )
+                }
+                refreshAllFromServer()
+                Result.success(Unit)
+            } catch (e: Exception) {
+                val msg = extractErrorMessage(e)
+                _state.update { it.copy(isLoading = false, errorMessage = msg) }
+                Result.failure(Exception(msg))
+            }
+        }
+
+    suspend fun resendOtp(email: String): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val resp = apiClient.api.sendOtp(SendOtpRequestDto(email = email.trim(), purpose = "verify_email"))
+            _state.update { it.copy(infoMessage = resp.message) }
+            Result.success(resp.message)
+        } catch (e: Exception) {
+            val msg = extractErrorMessage(e)
+            _state.update { it.copy(errorMessage = msg) }
+            Result.failure(Exception(msg))
+        }
+    }
+
+    suspend fun verifyOtp(email: String, code: String): Result<Unit> = withContext(Dispatchers.IO) {
+        _state.update { it.copy(isLoading = true, errorMessage = null) }
+        try {
+            val resp = apiClient.api.verifyOtp(
+                VerifyOtpRequestDto(email = email.trim(), code = code.trim(), purpose = "verify_email")
+            )
+            updateAndCache { s ->
+                s.copy(
+                    isLoading = false,
+                    pendingOtpEmail = null,
+                    infoMessage = resp.message,
+                    profile = s.profile.copy(isVerified = resp.isVerified)
+                )
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            val msg = extractErrorMessage(e)
+            _state.update { it.copy(isLoading = false, errorMessage = msg) }
+            Result.failure(Exception(msg))
+        }
+    }
+
+    suspend fun signOut() = withContext(Dispatchers.IO) {
+        val refresh = tokenStore.refreshToken
+        if (!refresh.isNullOrBlank()) {
+            runCatching { apiClient.api.logout(RefreshRequestDto(refresh)) }
+        }
+        groupWsClient.disconnect()
+        tokenStore.clearSession()
+        cacheDb.clearAll()
+        _state.update {
+            MindoraState(
+                isAuthenticated = false,
+                themeMode = it.themeMode,
+                language = it.language,
+                plansCatalog = it.plansCatalog
             )
         }
     }
 
-    fun createPlan(
+    suspend fun saveEducationProfile(profile: UserProfile): Result<Unit> = withContext(Dispatchers.IO) {
+        _state.update { it.copy(isLoading = true, errorMessage = null) }
+        try {
+            val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val targetDateStr = fmt.format(Date(profile.targetExamDateMillis))
+            val dto = EducationUpdateDto(
+                educationSystem = profile.educationSystem,
+                level = profile.level,
+                program = profile.program,
+                subjects = profile.subjects,
+                goals = listOf(profile.goal),
+                studyPreferences = mapOf(
+                    "study_windows" to profile.studyWindows,
+                    "explanation_style" to profile.explanationStyle,
+                    "allow_notifications" to profile.allowNotifications
+                ),
+                targetExamDate = targetDateStr
+            )
+            val updatedUser = apiClient.api.updateEducation(dto)
+            val mapped = ApiModelsMapper.toUserProfile(updatedUser).copy(
+                preferredLanguage = profile.preferredLanguage,
+                onboardingCompleted = true
+            )
+            prefs.edit().putString("language", mapped.preferredLanguage.code).apply()
+            updateAndCache { s ->
+                s.copy(
+                    isLoading = false,
+                    profile = mapped,
+                    language = mapped.preferredLanguage
+                )
+            }
+            refreshAllFromServer()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            val msg = extractErrorMessage(e)
+            // Keep onboarding local flags if offline
+            updateAndCache { s -> s.copy(isLoading = false, profile = profile, errorMessage = msg) }
+            Result.failure(Exception(msg))
+        }
+    }
+
+    // --- Full Server Sync & Offline Flush ---
+
+    suspend fun refreshAllFromServer() = withContext(Dispatchers.IO) {
+        if (!tokenStore.hasTokens()) return@withContext
+        _state.update { it.copy(isLoading = true) }
+        try {
+            coroutineScope {
+                val meDef = async { runCatching { apiClient.api.getMe() }.getOrNull() }
+                val dashDef = async { runCatching { apiClient.api.getDashboard() }.getOrNull() }
+                val progDef = async { runCatching { apiClient.api.getProgressOverview() }.getOrNull() }
+                val plansDef = async {
+                    runCatching {
+                        val list = apiClient.api.listPlans()
+                        list.map { p -> runCatching { apiClient.api.getPlan(p.id) }.getOrDefault(p) }
+                    }.getOrNull()
+                }
+                val creditsDef = async { runCatching { apiClient.api.getCreditsBalance() }.getOrNull() }
+                val myDocsDef = async { runCatching { apiClient.api.listMyDocuments() }.getOrNull() }
+                val libDocsDef = async { runCatching { apiClient.api.listDocumentLibrary() }.getOrNull() }
+                val papersDef = async { runCatching { apiClient.api.listPapers() }.getOrNull() }
+                val decksDef = async {
+                    runCatching {
+                        val list = apiClient.api.listDecks()
+                        list.map { d ->
+                            val cards = runCatching { apiClient.api.getDueCards(d.id, 50) }.getOrDefault(emptyList())
+                            ApiModelsMapper.toDeck(d, cards)
+                        }
+                    }.getOrNull()
+                }
+                val examsDef = async { runCatching { apiClient.api.listMockExams() }.getOrNull() }
+                val convsDef = async { runCatching { apiClient.api.listAiConversations() }.getOrNull() }
+                val groupsDef = async { runCatching { apiClient.api.listStudyGroups() }.getOrNull() }
+                val plansCatDef = async { runCatching { apiClient.api.listPublicPlans() }.getOrNull() }
+                val mySubDef = async { runCatching { apiClient.api.getMySubscription() }.getOrNull() }
+                val notifsDef = async { runCatching { apiClient.api.listNotifications() }.getOrNull() }
+                val notifPrefsDef = async { runCatching { apiClient.api.getNotificationPrefs() }.getOrNull() }
+                val ticketsDef = async { runCatching { apiClient.api.listMyTickets() }.getOrNull() }
+
+                val me = meDef.await()
+                val dash = dashDef.await()
+                val prog = progDef.await()
+                val rawPlans = plansDef.await()
+                val credits = creditsDef.await()
+                val myDocs = myDocsDef.await()
+                val libDocs = libDocsDef.await()
+                val papers = papersDef.await()
+                val decks = decksDef.await()
+                val exams = examsDef.await()
+                val convs = convsDef.await()
+                val groups = groupsDef.await()
+                val catalog = plansCatDef.await()
+                val mySub = mySubDef.await()
+                val notifs = notifsDef.await()
+                val nPrefs = notifPrefsDef.await()
+                val tickets = ticketsDef.await()
+
+                val allDocs = ((myDocs ?: emptyList()) + (libDocs ?: emptyList()))
+                    .distinctBy { it.id }
+                    .map { ApiModelsMapper.toDocument(it) }
+
+                val existingPapersMap = _state.value.pastPapers.associateBy { it.id }
+                val mappedPapers = papers?.map { p ->
+                    val cachedFile = paperLocalFile(p.fileName)
+                    val localPath = if (cachedFile.exists()) cachedFile.absolutePath else existingPapersMap[p.id]?.localFilePath
+                    ApiModelsMapper.toPastPaper(p, localPath)
+                }
+
+                val mappedGroups = groups?.map { g ->
+                    val existingMsgs = _state.value.studyGroups.find { it.id == g.id }?.messages.orEmpty()
+                    ApiModelsMapper.toStudyGroup(g, existingMsgs)
+                }
+
+                val mappedConvs = convs?.map { c ->
+                    val existing = _state.value.conversations.find { it.id == c.id }
+                    ApiModelsMapper.toConversation(c, existing?.messages.orEmpty())
+                }
+
+                updateAndCache { s ->
+                    s.copy(
+                        isLoading = false,
+                        isOffline = me == null && dash == null,
+                        profile = if (me != null) ApiModelsMapper.toUserProfile(me) else s.profile,
+                        streakDays = prog?.streakDays ?: dash?.streakDays ?: s.streakDays,
+                        creditsBalance = credits?.balance ?: s.creditsBalance,
+                        dashboardData = dash?.let { ApiModelsMapper.toDashboardData(it) } ?: s.dashboardData,
+                        topicMasteries = prog?.topics?.map { ApiModelsMapper.toTopicMastery(it) } ?: s.topicMasteries,
+                        totalMinutesStudied = prog?.totalMinutesStudied ?: s.totalMinutesStudied,
+                        sessionsCompleted = prog?.sessionsCompleted ?: s.sessionsCompleted,
+                        mockExamsCompleted = prog?.mockExamsCompleted ?: s.mockExamsCompleted,
+                        averageExamScore = prog?.averageExamScore ?: s.averageExamScore,
+                        plans = rawPlans?.map { ApiModelsMapper.toStudyPlan(it) } ?: s.plans,
+                        documents = if (myDocs != null || libDocs != null) allDocs else s.documents,
+                        pastPapers = mappedPapers ?: s.pastPapers,
+                        decks = decks ?: s.decks,
+                        mockExams = exams?.map { ex ->
+                            val existing = s.mockExams.find { it.id == ex.id }
+                            ApiModelsMapper.toMockExam(ex, existing)
+                        } ?: s.mockExams,
+                        conversations = mappedConvs ?: s.conversations,
+                        studyGroups = mappedGroups ?: s.studyGroups,
+                        plansCatalog = catalog?.map { ApiModelsMapper.toSubscriptionPlan(it) } ?: s.plansCatalog,
+                        activeSubscription = if (mySub != null || catalog != null) {
+                            mySub?.let { ApiModelsMapper.toActiveSubscription(it) }
+                        } else s.activeSubscription,
+                        notifications = notifs?.map { ApiModelsMapper.toNotification(it) } ?: s.notifications,
+                        notificationPrefs = nPrefs?.let { ApiModelsMapper.toNotificationPrefs(it) } ?: s.notificationPrefs,
+                        tickets = tickets?.map { ApiModelsMapper.toSupportTicket(it) } ?: s.tickets
+                    )
+                }
+            }
+        } catch (_: Exception) {
+            _state.update { it.copy(isLoading = false, isOffline = true) }
+        }
+    }
+
+    private suspend fun flushPendingOfflineActions() {
+        val actions = cacheDb.listPendingActions()
+        for (act in actions) {
+            val ok = try {
+                val json = JSONObject(act.payloadJson)
+                when (act.actionType) {
+                    "complete_session" -> {
+                        apiClient.api.completeSession(json.getString("sessionId"), SessionCompleteDto())
+                        true
+                    }
+                    "review_card" -> {
+                        apiClient.api.reviewCard(
+                            json.getString("cardId"),
+                            ReviewCardRequestDto(json.getInt("quality"))
+                        )
+                        true
+                    }
+                    else -> true
+                }
+            } catch (_: IOException) {
+                false
+            } catch (_: Exception) {
+                true
+            }
+            if (ok) cacheDb.deletePendingAction(act.id)
+        }
+    }
+
+    // --- Planner & Study Sessions ---
+
+    suspend fun createPlan(
         planType: String,
         title: String,
         subject: String,
         examSystem: String,
         examLevel: String,
-        targetDateMillis: Long,
+        targetDays: Int,
         dailyMinutes: Int
-    ): StudyPlan {
-        val planId = "plan-${UUID.randomUUID().toString().take(8)}"
-        val topics = SeedCatalog.subjectTopics[subject]
-            ?: listOf("Core Foundations", "Worked Examples", "Problem Solving", "Exam Practice")
-        val now = System.currentTimeMillis()
-        val sessions = topics.mapIndexed { idx, topic ->
-            StudySession(
-                id = "sess-${UUID.randomUUID().toString().take(8)}",
-                planId = planId,
-                title = "$topic — Practice",
-                subject = subject,
-                topic = topic,
-                objective = "Review key concepts in $topic and solve $examLevel exercises.",
-                scheduledForMillis = now + idx.toLong() * 86_400_000L,
-                durationMinutes = dailyMinutes,
-                status = "scheduled"
-            )
-        }
-        val plan = StudyPlan(
-            id = planId,
-            planType = planType,
-            title = title,
-            subject = subject,
-            examSystem = examSystem,
-            examLevel = examLevel,
-            targetDateMillis = targetDateMillis,
-            dailyMinutes = dailyMinutes,
-            isActive = true,
-            sessions = sessions
-        )
-        updateAndPersist { s -> s.copy(plans = listOf(plan) + s.plans) }
-        return plan
-    }
-
-    // --- Flashcards (SM-2) ---
-
-    fun createDeck(title: String, subject: String, description: String) {
-        val deck = Deck(
-            id = "deck-${UUID.randomUUID().toString().take(8)}",
-            title = title.trim(),
-            subject = subject,
-            description = description.ifBlank { "Custom study deck" },
-            cards = emptyList()
-        )
-        updateAndPersist { s -> s.copy(decks = listOf(deck) + s.decks) }
-    }
-
-    fun addFlashcard(deckId: String, front: String, back: String) {
-        val card = Flashcard(
-            id = "fc-${UUID.randomUUID().toString().take(8)}",
-            deckId = deckId,
-            front = front.trim(),
-            back = back.trim(),
-            nextReviewAtMillis = System.currentTimeMillis() - 1000L
-        )
-        updateAndPersist { s ->
-            s.copy(
-                decks = s.decks.map { d ->
-                    if (d.id == deckId) d.copy(cards = d.cards + card) else d
-                }
-            )
+    ): StudyPlan? = withContext(Dispatchers.IO) {
+        _state.update { it.copy(isLoading = true, errorMessage = null) }
+        try {
+            val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
+            val targetDate = fmt.format(Date(System.currentTimeMillis() + targetDays.toLong() * 86_400_000L))
+            val dto = if (planType == "exam") {
+                apiClient.api.createExamPlan(
+                    ExamPlanCreateDto(
+                        examSystem = examSystem,
+                        examLevel = examLevel,
+                        examName = title,
+                        subjects = listOf(subject),
+                        targetDate = targetDate,
+                        dailyMinutes = dailyMinutes
+                    )
+                )
+            } else {
+                apiClient.api.createSubjectPlan(
+                    SubjectPlanCreateDto(
+                        subject = subject,
+                        topic = title,
+                        durationDays = targetDays,
+                        dailyMinutes = dailyMinutes
+                    )
+                )
+            }
+            val mapped = ApiModelsMapper.toStudyPlan(dto)
+            updateAndCache { s ->
+                s.copy(isLoading = false, plans = listOf(mapped) + s.plans.filterNot { it.id == mapped.id })
+            }
+            refreshAllFromServer()
+            mapped
+        } catch (e: Exception) {
+            _state.update { it.copy(isLoading = false, errorMessage = extractErrorMessage(e)) }
+            null
         }
     }
 
-    fun generateFlashcardsForDeck(deckId: String, topic: String) {
-        val now = System.currentTimeMillis() - 1000L
-        val generated = listOf(
-            Flashcard(
-                id = "fc-${UUID.randomUUID().toString().take(8)}",
-                deckId = deckId,
-                front = "Key definition of $topic",
-                back = "$topic focuses on fundamental principles, core theorems, and structured problem-solving methods tested in exams.",
-                nextReviewAtMillis = now
-            ),
-            Flashcard(
-                id = "fc-${UUID.randomUUID().toString().take(8)}",
-                deckId = deckId,
-                front = "Common exam pitfall in $topic",
-                back = "Always verify boundary conditions, units, and sign conventions before finalizing your solution.",
-                nextReviewAtMillis = now
-            ),
-            Flashcard(
-                id = "fc-${UUID.randomUUID().toString().take(8)}",
-                deckId = deckId,
-                front = "How to verify a result in $topic?",
-                back = "Substitute values back into the original equation or test limiting cases.",
-                nextReviewAtMillis = now
-            )
-        )
-        updateAndPersist { s ->
-            s.copy(
-                decks = s.decks.map { d ->
-                    if (d.id == deckId) d.copy(cards = d.cards + generated) else d
-                }
-            )
-        }
+    suspend fun startSession(sessionId: String) = withContext(Dispatchers.IO) {
+        runCatching { apiClient.api.startSession(sessionId) }
     }
 
-    fun reviewFlashcard(deckId: String, cardId: String, quality: Int) {
-        updateAndPersist { s ->
+    suspend fun completeSession(sessionId: String) = withContext(Dispatchers.IO) {
+        updateAndCache { s ->
             s.copy(
-                decks = s.decks.map { deck ->
-                    if (deck.id != deckId) deck
-                    else deck.copy(
-                        cards = deck.cards.map { c ->
-                            if (c.id == cardId) Sm2Engine.update(c, quality) else c
+                plans = s.plans.map { p ->
+                    p.copy(
+                        sessions = p.sessions.map { sess ->
+                            if (sess.id == sessionId) sess.copy(status = "completed") else sess
                         }
                     )
                 }
             )
         }
+        try {
+            apiClient.api.completeSession(sessionId, SessionCompleteDto())
+            refreshAllFromServer()
+        } catch (_: IOException) {
+            cacheDb.enqueueAction("complete_session", JSONObject().put("sessionId", sessionId))
+            _state.update { it.copy(isOffline = true) }
+        } catch (e: Exception) {
+            _state.update { it.copy(errorMessage = extractErrorMessage(e)) }
+        }
     }
 
-    // --- Mock Exams ---
+    // --- Flashcards ---
 
-    fun createMockExam(
+    suspend fun openDeckDueCards(deckId: String) = withContext(Dispatchers.IO) {
+        try {
+            val cards = apiClient.api.getDueCards(deckId, 50).map { ApiModelsMapper.toFlashcard(it) }
+            updateAndCache { s ->
+                s.copy(
+                    decks = s.decks.map { d ->
+                        if (d.id == deckId) d.copy(cards = cards, serverDueCount = cards.size) else d
+                    }
+                )
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    suspend fun createDeck(title: String, subject: String, description: String) = withContext(Dispatchers.IO) {
+        try {
+            val created = apiClient.api.createDeck(
+                DeckCreateDto(
+                    title = title.trim(),
+                    description = description.ifBlank { null },
+                    subject = subject.ifBlank { null }
+                )
+            )
+            val mapped = ApiModelsMapper.toDeck(created, emptyList())
+            updateAndCache { s -> s.copy(decks = listOf(mapped) + s.decks) }
+        } catch (e: Exception) {
+            _state.update { it.copy(errorMessage = extractErrorMessage(e)) }
+        }
+    }
+
+    suspend fun addFlashcard(deckId: String, front: String, back: String) = withContext(Dispatchers.IO) {
+        try {
+            val card = apiClient.api.addCard(deckId, FlashcardCreateDto(front.trim(), back.trim()))
+            val mapped = ApiModelsMapper.toFlashcard(card)
+            updateAndCache { s ->
+                s.copy(
+                    decks = s.decks.map { d ->
+                        if (d.id == deckId) {
+                            d.copy(
+                                cards = d.cards + mapped,
+                                serverCardCount = (d.serverCardCount ?: d.cards.size) + 1,
+                                serverDueCount = (d.serverDueCount ?: d.dueCount) + 1
+                            )
+                        } else d
+                    }
+                )
+            }
+        } catch (e: Exception) {
+            _state.update { it.copy(errorMessage = extractErrorMessage(e)) }
+        }
+    }
+
+    suspend fun generateFlashcardsForDeck(deckId: String, topic: String) = withContext(Dispatchers.IO) {
+        _state.update { it.copy(isLoading = true, errorMessage = null) }
+        try {
+            val prompt = "Generate 3 concise flashcards for studying \"$topic\". " +
+                "Return ONLY a JSON array of objects with keys \"front\" and \"back\", no markdown."
+            val resp = apiClient.api.sendAiChat(ChatRequestDto(message = prompt, subject = topic))
+            val raw = resp.message.content.trim()
+                .removePrefix("```json")
+                .removePrefix("```")
+                .removeSuffix("```")
+                .trim()
+            val arr = runCatching { JSONArray(raw) }.getOrNull()
+            val pairs = mutableListOf<Pair<String, String>>()
+            if (arr != null && arr.length() > 0) {
+                for (i in 0 until arr.length()) {
+                    val obj = arr.optJSONObject(i) ?: continue
+                    val f = obj.optString("front").trim()
+                    val b = obj.optString("back").trim()
+                    if (f.isNotEmpty() && b.isNotEmpty()) pairs.add(f to b)
+                }
+            }
+            if (pairs.isEmpty()) {
+                pairs.add("Core principle of $topic" to resp.message.content.take(280))
+            }
+            for ((f, b) in pairs) {
+                addFlashcard(deckId, f, b)
+            }
+            _state.update { it.copy(isLoading = false, infoMessage = "${pairs.size} flashcards added") }
+        } catch (e: Exception) {
+            _state.update { it.copy(isLoading = false, errorMessage = extractErrorMessage(e)) }
+        }
+    }
+
+    suspend fun reviewFlashcard(deckId: String, cardId: String, quality: Int) = withContext(Dispatchers.IO) {
+        updateAndCache { s ->
+            s.copy(
+                decks = s.decks.map { deck ->
+                    if (deck.id != deckId) deck
+                    else {
+                        val updatedCards = deck.cards.map { c ->
+                            if (c.id == cardId) Sm2Engine.update(c, quality) else c
+                        }
+                        deck.copy(
+                            cards = updatedCards,
+                            serverDueCount = (deck.serverDueCount?.minus(1))?.coerceAtLeast(0)
+                        )
+                    }
+                }
+            )
+        }
+        try {
+            val res = apiClient.api.reviewCard(cardId, ReviewCardRequestDto(quality))
+            val nextMillis = ApiModelsMapper.parseIsoMillis(res.nextReviewAt)
+            updateAndCache { s ->
+                s.copy(
+                    decks = s.decks.map { deck ->
+                        if (deck.id != deckId) deck
+                        else deck.copy(
+                            cards = deck.cards.map { c ->
+                                if (c.id == cardId) {
+                                    c.copy(
+                                        easeFactor = res.easeFactor,
+                                        intervalDays = res.intervalDays,
+                                        repetitions = res.repetitions,
+                                        nextReviewAtMillis = nextMillis
+                                    )
+                                } else c
+                            }
+                        )
+                    }
+                )
+            }
+        } catch (_: IOException) {
+            cacheDb.enqueueAction(
+                "review_card",
+                JSONObject().put("cardId", cardId).put("quality", quality)
+            )
+            _state.update { it.copy(isOffline = true) }
+        } catch (_: Exception) {
+        }
+    }
+
+    // --- Mock Exams (Strictly Server-Side Grading) ---
+
+    suspend fun createMockExam(
         title: String,
         subject: String,
         academicLevel: String,
         difficulty: String,
         questionCount: Int,
         durationMinutes: Int
-    ): MockExam {
-        val bank = SeedCatalog.questionBankFor(subject)
-        val selected = (0 until questionCount).map { idx ->
-            val template = bank[idx % bank.size]
-            template.copy(
-                id = "q-${UUID.randomUUID().toString().take(6)}-$idx",
-                position = idx + 1
+    ): MockExam? = withContext(Dispatchers.IO) {
+        _state.update { it.copy(isLoading = true, errorMessage = null) }
+        try {
+            val detail = apiClient.api.createMockExam(
+                CreateMockExamDto(
+                    title = title.trim(),
+                    subject = subject,
+                    academicLevel = academicLevel,
+                    questionCount = questionCount,
+                    durationMinutes = durationMinutes,
+                    difficulty = difficulty
+                )
             )
-        }
-        val exam = MockExam(
-            id = "exam-${UUID.randomUUID().toString().take(8)}",
-            title = title.trim(),
-            subject = subject,
-            academicLevel = academicLevel,
-            difficulty = difficulty,
-            durationMinutes = durationMinutes,
-            status = "ready",
-            questions = selected
-        )
-        updateAndPersist { s -> s.copy(mockExams = listOf(exam) + s.mockExams) }
-        return exam
-    }
-
-    fun startMockExam(examId: String) {
-        updateAndPersist { s ->
-            s.copy(
-                mockExams = s.mockExams.map { e ->
-                    if (e.id == examId && e.isReady) e.copy(status = "in_progress") else e
-                }
-            )
+            val mapped = ApiModelsMapper.toMockExamDetail(detail)
+            updateAndCache { s ->
+                s.copy(
+                    isLoading = false,
+                    mockExams = listOf(mapped) + s.mockExams.filterNot { it.id == mapped.id }
+                )
+            }
+            mapped
+        } catch (e: Exception) {
+            _state.update { it.copy(isLoading = false, errorMessage = extractErrorMessage(e)) }
+            null
         }
     }
 
-    fun saveExamAnswer(examId: String, questionId: String, answer: String) {
-        updateAndPersist { s ->
-            s.copy(
-                mockExams = s.mockExams.map { e ->
-                    if (e.id == examId) {
-                        e.copy(
-                            status = if (e.isReady) "in_progress" else e.status,
-                            answers = e.answers + (questionId to answer)
-                        )
-                    } else e
-                }
-            )
+    suspend fun loadMockExamDetail(examId: String) = withContext(Dispatchers.IO) {
+        try {
+            val detail = apiClient.api.getMockExam(examId)
+            val mapped = ApiModelsMapper.toMockExamDetail(detail)
+            val results = if (detail.status == "graded") {
+                runCatching { apiClient.api.getMockExamResults(examId) }.getOrNull()
+            } else null
+
+            val merged = if (results != null) ApiModelsMapper.applyResults(mapped, results) else mapped
+            updateAndCache { s ->
+                s.copy(
+                    mockExams = s.mockExams.map { if (it.id == examId) merged else it }
+                        .let { list -> if (list.none { it.id == examId }) listOf(merged) + list else list }
+                )
+            }
+        } catch (e: Exception) {
+            _state.update { it.copy(errorMessage = extractErrorMessage(e)) }
         }
     }
 
-    fun submitMockExam(examId: String) {
-        updateAndPersist { s ->
+    suspend fun startMockExam(examId: String) = withContext(Dispatchers.IO) {
+        try {
+            val detail = apiClient.api.startMockExam(examId)
+            val mapped = ApiModelsMapper.toMockExamDetail(detail)
+            updateAndCache { s ->
+                s.copy(mockExams = s.mockExams.map { if (it.id == examId) mapped.copy(answers = it.answers) else it })
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    suspend fun saveExamAnswer(examId: String, questionId: String, answer: String) {
+        updateAndCache { s ->
             s.copy(
                 mockExams = s.mockExams.map { e ->
-                    if (e.id != examId) e
-                    else {
-                        var correct = 0
-                        var wrong = 0
-                        var skipped = 0
-                        e.questions.forEach { q ->
-                            val ans = e.answers[q.id]
-                            if (ans.isNullOrBlank()) {
-                                skipped++
-                            } else if (ans.equals(q.correctAnswer, ignoreCase = true)) {
-                                correct++
-                            } else {
-                                wrong++
-                            }
-                        }
-                        val total = e.questions.size.coerceAtLeast(1)
-                        val scorePct = ((correct.toDouble() / total.toDouble()) * 100.0 * 10.0).roundToInt() / 10.0
-                        val summary = when {
-                            scorePct >= 80 -> "Excellent performance! You have strong mastery across ${e.subject}."
-                            scorePct >= 60 -> "Solid effort. Review the missed explanations below to lock in top marks."
-                            else -> "Keep practicing! Focus on the topic breakdown below and use flashcards to reinforce core formulas."
-                        }
-                        e.copy(
-                            status = "graded",
-                            score = scorePct,
-                            correctCount = correct,
-                            wrongCount = wrong,
-                            skippedCount = skipped,
-                            feedbackSummary = summary
-                        )
-                    }
+                    if (e.id == examId) e.copy(answers = e.answers + (questionId to answer)) else e
                 }
             )
+        }
+        scope.launch {
+            runCatching {
+                apiClient.api.submitExamAnswer(examId, SubmitAnswerDto(questionId = questionId, answer = answer))
+            }
+        }
+    }
+
+    suspend fun submitMockExam(examId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        _state.update { it.copy(isLoading = true, errorMessage = null) }
+        try {
+            val currentAnswers = _state.value.mockExams.find { it.id == examId }?.answers.orEmpty()
+            for ((qId, ans) in currentAnswers) {
+                runCatching {
+                    apiClient.api.submitExamAnswer(examId, SubmitAnswerDto(questionId = qId, answer = ans))
+                }
+            }
+            val results = apiClient.api.submitMockExam(examId)
+            val existing = _state.value.mockExams.find { it.id == examId }
+            val graded = if (existing != null) {
+                ApiModelsMapper.applyResults(existing, results)
+            } else {
+                val detail = apiClient.api.getMockExam(examId)
+                ApiModelsMapper.applyResults(ApiModelsMapper.toMockExamDetail(detail), results)
+            }
+            updateAndCache { s ->
+                s.copy(
+                    isLoading = false,
+                    mockExams = s.mockExams.map { if (it.id == examId) graded else it }
+                )
+            }
+            refreshAllFromServer()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            val msg = extractErrorMessage(e)
+            _state.update { it.copy(isLoading = false, errorMessage = msg) }
+            Result.failure(Exception(msg))
         }
     }
 
     // --- Past Papers & Documents ---
 
-    fun unlockPaper(paperId: String): Boolean {
-        val current = _state.value
-        val paper = current.pastPapers.find { it.id == paperId } ?: return false
-        if (paper.isUnlocked) return true
-        if (current.creditsBalance < 2) return false
-        updateAndPersist { s ->
-            s.copy(
-                creditsBalance = s.creditsBalance - 2,
-                pastPapers = s.pastPapers.map { p ->
-                    if (p.id == paperId) p.copy(isUnlocked = true, downloadCount = p.downloadCount + 1) else p
-                }
-            )
-        }
-        return true
+    private fun paperLocalFile(fileName: String): File {
+        val dir = File(appContext.filesDir, "papers")
+        if (!dir.exists()) dir.mkdirs()
+        return File(dir, fileName.replace(Regex("[^a-zA-Z0-9._-]"), "_"))
     }
 
-    fun contributeDocument(
+    suspend fun downloadPaperPdf(paper: PastPaper): Result<File> = withContext(Dispatchers.IO) {
+        val target = paperLocalFile(paper.fileName)
+        if (target.exists() && target.length() > 100L) {
+            return@withContext Result.success(target)
+        }
+        _state.update { it.copy(isLoading = true, errorMessage = null) }
+        try {
+            val body = apiClient.api.downloadPaper(paper.id)
+            body.byteStream().use { input ->
+                target.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+            updateAndCache { s ->
+                s.copy(
+                    isLoading = false,
+                    pastPapers = s.pastPapers.map { p ->
+                        if (p.id == paper.id) {
+                            p.copy(localFilePath = target.absolutePath, downloadCount = p.downloadCount + 1)
+                        } else p
+                    }
+                )
+            }
+            Result.success(target)
+        } catch (e: Exception) {
+            val msg = extractErrorMessage(e)
+            _state.update { it.copy(isLoading = false, errorMessage = msg) }
+            Result.failure(Exception(msg))
+        }
+    }
+
+    suspend fun uploadDocument(
         title: String,
         subject: String,
         examSystem: String,
         examLevel: String,
         description: String,
-        contentText: String,
-        fileName: String
-    ): ContributedDocument {
-        val doc = ContributedDocument(
-            id = "doc-${UUID.randomUUID().toString().take(8)}",
-            title = title.trim(),
-            subject = subject,
-            examSystem = examSystem,
-            examLevel = examLevel,
-            description = description.trim(),
-            contentText = contentText.trim(),
-            fileName = fileName.ifBlank { "${title.lowercase().replace(" ", "_")}.txt" },
-            status = "approved",
-            creditsAwarded = 5
-        )
-        updateAndPersist { s ->
-            s.copy(
-                creditsBalance = s.creditsBalance + 5,
-                documents = listOf(doc) + s.documents
-            )
+        fileBytes: ByteArray,
+        fileName: String,
+        mimeType: String
+    ): Result<ContributedDocument> = withContext(Dispatchers.IO) {
+        _state.update { it.copy(isLoading = true, errorMessage = null) }
+        try {
+            val safeName = fileName.ifBlank { "${title.lowercase().replace(" ", "_")}.txt" }
+            val fileReqBody = fileBytes.toRequestBody(mimeType.toMediaTypeOrNull())
+            val part = MultipartBody.Part.createFormData("file", safeName, fileReqBody)
+            val titleBody = title.trim().toRequestBody("text/plain".toMediaTypeOrNull())
+            val descBody = description.ifBlank { title }.trim().toRequestBody("text/plain".toMediaTypeOrNull())
+
+            val uploaded = apiClient.api.uploadDocument(part, titleBody, descBody)
+            val finalDoc = runCatching {
+                apiClient.api.submitDocumentMetadata(
+                    uploaded.id,
+                    SubmitDocumentDto(
+                        category = subject,
+                        academicLevel = examLevel,
+                        language = _state.value.language.code,
+                        isExamRelated = true,
+                        examSystem = examSystem,
+                        examName = "$examSystem $examLevel"
+                    )
+                )
+            }.getOrDefault(uploaded)
+
+            val mapped = ApiModelsMapper.toDocument(finalDoc)
+            updateAndCache { s ->
+                s.copy(
+                    isLoading = false,
+                    infoMessage = "Document uploaded & queued for indexing",
+                    documents = listOf(mapped) + s.documents.filterNot { it.id == mapped.id }
+                )
+            }
+            refreshAllFromServer()
+            Result.success(mapped)
+        } catch (e: Exception) {
+            val msg = extractErrorMessage(e)
+            _state.update { it.copy(isLoading = false, errorMessage = msg) }
+            Result.failure(Exception(msg))
         }
-        return doc
     }
 
-    // --- Study Groups ---
-
-    fun sendGroupMessage(groupId: String, content: String) {
-        val trimmed = content.trim()
-        if (trimmed.isEmpty()) return
-        val sender = _state.value.profile.fullName
-        val msg = GroupMessage(
-            id = "gm-${UUID.randomUUID().toString().take(8)}",
-            senderName = sender,
-            content = trimmed,
-            isMe = true
-        )
-        updateAndPersist { s ->
-            s.copy(
-                studyGroups = s.studyGroups.map { g ->
-                    if (g.id == groupId) g.copy(messages = g.messages + msg) else g
-                }
-            )
-        }
-    }
-
-    // --- AI Tutor Chat ---
+    // --- AI Tutor (SSE Streaming + Vision + Voice) ---
 
     fun startNewConversation() {
-        updateAndPersist { it.copy(activeConversationId = null) }
+        _state.update { it.copy(activeConversationId = null) }
     }
 
-    fun selectConversation(id: String) {
-        updateAndPersist { it.copy(activeConversationId = id) }
+    suspend fun selectConversation(id: String) = withContext(Dispatchers.IO) {
+        _state.update { it.copy(activeConversationId = id) }
+        try {
+            val detail = apiClient.api.getAiConversation(id)
+            val mapped = ApiModelsMapper.toConversationDetail(detail)
+            updateAndCache { s ->
+                s.copy(
+                    conversations = s.conversations.map { if (it.id == id) mapped else it }
+                )
+            }
+        } catch (_: Exception) {
+        }
     }
 
-    suspend fun sendAiMessage(prompt: String, attachmentLabel: String? = null) {
+    suspend fun sendAiMessage(prompt: String, attachmentLabel: String? = null) = withContext(Dispatchers.IO) {
         val cleanPrompt = prompt.trim()
-        if (cleanPrompt.isEmpty() && attachmentLabel == null) return
-
+        if (cleanPrompt.isEmpty() && attachmentLabel == null) return@withContext
         val effectivePrompt = if (cleanPrompt.isEmpty()) {
-            "Analyze attached study exercise: $attachmentLabel"
+            "Explain this exercise: $attachmentLabel"
+        } else if (attachmentLabel != null) {
+            "[$attachmentLabel]\n$cleanPrompt"
         } else cleanPrompt
 
-        val userMsg = ChatMessage(
-            id = "msg-${UUID.randomUUID().toString().take(8)}",
-            role = "user",
-            content = effectivePrompt,
-            attachmentLabel = attachmentLabel
-        )
+        val userMsgId = "tmp-u-${UUID.randomUUID().toString().take(8)}"
+        val assistantMsgId = "tmp-a-${UUID.randomUUID().toString().take(8)}"
+        val tempConvId = _state.value.activeConversationId ?: "tmp-c-${UUID.randomUUID().toString().take(8)}"
+        val serverConvId = _state.value.activeConversationId?.takeIf { !it.startsWith("tmp-") }
 
-        var convId = _state.value.activeConversationId
-        if (convId == null) {
-            convId = "conv-${UUID.randomUUID().toString().take(8)}"
-            val newConv = Conversation(
-                id = convId,
-                title = effectivePrompt.take(40),
-                subject = _state.value.profile.subjects.firstOrNull(),
-                messages = listOf(userMsg)
-            )
-            updateAndPersist { s ->
-                s.copy(
-                    conversations = listOf(newConv) + s.conversations,
-                    activeConversationId = convId,
-                    aiSending = true
-                )
-            }
-        } else {
-            updateAndPersist { s ->
-                s.copy(
-                    conversations = s.conversations.map { c ->
-                        if (c.id == convId) c.copy(messages = c.messages + userMsg, updatedAtMillis = System.currentTimeMillis())
-                        else c
-                    },
-                    aiSending = true
-                )
-            }
-        }
+        val userMsg = ChatMessage(id = userMsgId, role = "user", content = effectivePrompt, attachmentLabel = attachmentLabel)
+        val assistantPlaceholder = ChatMessage(id = assistantMsgId, role = "assistant", content = "")
 
-        val reply = generateTutorReply(effectivePrompt, attachmentLabel)
-
-        updateAndPersist { s ->
-            s.copy(
-                aiSending = false,
-                conversations = s.conversations.map { c ->
-                    if (c.id == convId) c.copy(messages = c.messages + reply, updatedAtMillis = System.currentTimeMillis())
-                    else c
-                }
-            )
-        }
-    }
-
-    private suspend fun generateTutorReply(prompt: String, attachmentLabel: String?): ChatMessage {
-        val snapshot = _state.value
-        val toolsUsed = mutableListOf<ToolUsage>()
-
-        // 1. Check math calculator tool
-        val mathResult = tryEvaluateMath(prompt)
-        if (mathResult != null) {
-            toolsUsed.add(ToolUsage("Calculator", mathResult.first))
-        }
-
-        // 2. Check Course RAG across uploaded/seeded documents
-        val matchingDocs = searchCourseDocuments(prompt, snapshot.documents)
-        if (matchingDocs.isNotEmpty()) {
-            toolsUsed.add(ToolUsage("Course RAG", matchingDocs.first().title))
-        }
-
-        // 3. Try Gemini REST API if key is configured
-        val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isNotBlank() && !apiKey.contains("your_", ignoreCase = true)) {
-            val geminiText = callGeminiApi(
-                apiKey = apiKey,
-                prompt = prompt,
-                profile = snapshot.profile,
-                docContext = matchingDocs.joinToString("\n\n") { "${it.title}: ${it.contentText}" },
-                mathHint = mathResult?.let { "${it.first} = ${it.second}" }
-            )
-            if (!geminiText.isNullOrBlank()) {
-                if (toolsUsed.isEmpty()) toolsUsed.add(ToolUsage("AI Tutor", "Gemini"))
-                return ChatMessage(
-                    id = "msg-${UUID.randomUUID().toString().take(8)}",
-                    role = "assistant",
-                    content = geminiText,
-                    toolsUsed = toolsUsed
-                )
-            }
-        }
-
-        // 4. Grounded intelligent tutor fallback
-        val style = snapshot.profile.explanationStyle
-        val responseText = buildOfflineTutorResponse(
-            prompt = prompt,
-            attachmentLabel = attachmentLabel,
-            style = style,
-            mathResult = mathResult,
-            matchingDocs = matchingDocs,
-            profile = snapshot.profile
-        )
-        if (toolsUsed.isEmpty()) toolsUsed.add(ToolUsage("Study Tutor", style.replaceFirstChar { it.uppercase() }))
-
-        return ChatMessage(
-            id = "msg-${UUID.randomUUID().toString().take(8)}",
-            role = "assistant",
-            content = responseText,
-            toolsUsed = toolsUsed
-        )
-    }
-
-    private suspend fun callGeminiApi(
-        apiKey: String,
-        prompt: String,
-        profile: UserProfile,
-        docContext: String,
-        mathHint: String?
-    ): String? = withContext(Dispatchers.IO) {
-        try {
-            val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey")
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                setRequestProperty("Content-Type", "application/json")
-                connectTimeout = 10_000
-                readTimeout = 15_000
-                doOutput = true
-            }
-
-            val sysInstruction = buildString {
-                append("You are MINDORA, a supportive exam-prep tutor for a ${profile.level} student (${profile.educationSystem} system). ")
-                append("Explanation style: ${profile.explanationStyle}. Language: ${profile.preferredLanguage.label}. ")
-                if (docContext.isNotBlank()) {
-                    append("\nRelevant student course notes:\n$docContext\n")
-                }
-                if (mathHint != null) {
-                    append("\nVerified calculation: $mathHint\n")
-                }
-            }
-
-            val payload = JSONObject().apply {
-                put("contents", JSONArray().apply {
-                    put(JSONObject().apply {
-                        put("parts", JSONArray().apply {
-                            put(JSONObject().apply {
-                                put("text", "$sysInstruction\n\nStudent question: $prompt")
-                            })
-                        })
-                    })
-                })
-            }
-
-            OutputStreamWriter(conn.outputStream).use { it.write(payload.toString()) }
-            if (conn.responseCode in 200..299) {
-                val resp = conn.inputStream.bufferedReader().readText()
-                val json = JSONObject(resp)
-                val candidates = json.optJSONArray("candidates")
-                val first = candidates?.optJSONObject(0)
-                val content = first?.optJSONObject("content")
-                val parts = content?.optJSONArray("parts")
-                parts?.optJSONObject(0)?.optString("text")?.takeIf { it.isNotBlank() }
-            } else null
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun searchCourseDocuments(query: String, docs: List<ContributedDocument>): List<ContributedDocument> {
-        val tokens = query.lowercase().split(Regex("[^a-z0-9à-ÿ]+")).filter { it.length >= 4 }
-        if (tokens.isEmpty()) return emptyList()
-        return docs.filter { doc ->
-            val haystack = "${doc.title} ${doc.subject} ${doc.description} ${doc.contentText}".lowercase()
-            tokens.any { haystack.contains(it) }
-        }
-    }
-
-    private fun buildOfflineTutorResponse(
-        prompt: String,
-        attachmentLabel: String?,
-        style: String,
-        mathResult: Pair<String, String>?,
-        matchingDocs: List<ContributedDocument>,
-        profile: UserProfile
-    ): String {
-        val q = prompt.lowercase()
-        val sb = StringBuilder()
-
-        if (mathResult != null) {
-            sb.append("Calculated Result: ${mathResult.first} = ${mathResult.second}\n\n")
-        }
-
-        if (matchingDocs.isNotEmpty()) {
-            val doc = matchingDocs.first()
-            sb.append("From your course document \"${doc.title}\":\n${doc.contentText}\n\n")
-        }
-
-        when {
-            q.contains("derivative") || q.contains("x²") || q.contains("x^2") || q.contains("dérivée") -> {
-                sb.append(
-                    "Step-by-step derivative of x²:\n" +
-                        "1. Apply the Power Rule: d/dx (xⁿ) = n · xⁿ⁻¹.\n" +
-                        "2. Here n = 2, so bring 2 in front and reduce the exponent by 1: 2 · x²⁻¹ = 2x.\n" +
-                        "3. Geometrically, 2x gives the gradient (slope) of the tangent line to y = x² at any point x."
-                )
-            }
-            q.contains("integration by parts") || q.contains("integrate") || q.contains("integral") -> {
-                sb.append(
-                    "Integration by Parts Formula: ∫ u dv = u·v − ∫ v du\n\n" +
-                        "3 Practice Questions (${profile.level}):\n" +
-                        "1. Evaluate ∫ x · eˣ dx  (Hint: let u = x, dv = eˣ dx)\n" +
-                        "2. Evaluate ∫ x · cos(x) dx  (Hint: let u = x, dv = cos(x) dx)\n" +
-                        "3. Evaluate ∫ ln(x) dx  (Hint: let u = ln(x), dv = 1 dx)\n\n" +
-                        "Ask me to walk through any of these 3!"
-                )
-            }
-            q.contains("differential equation") || q.contains("ode") -> {
-                sb.append(
-                    "How to solve First-Order Separable Differential Equations (dy/dx = g(x)h(y)):\n" +
-                        "1. Separate variables so all y terms are on the left and x terms on the right.\n" +
-                        "2. Integrate both sides: ∫ (1/h(y)) dy = ∫ g(x) dx + C.\n" +
-                        "3. Apply any given initial condition y(x₀) = y₀ to find the constant C."
-                )
-            }
-            attachmentLabel != null -> {
-                sb.append(
-                    "I received \"$attachmentLabel\". Break the exercise into:\n" +
-                        "• Known quantities and boundary conditions\n" +
-                        "• Governing theorem or equation\n" +
-                        "• Step-by-step substitution and unit check.\n" +
-                        "Type the equation or question text here and I will solve it line by line."
-                )
-            }
-            mathResult == null -> {
-                val lead = when (style) {
-                    "socratic" -> "Let's reason through this together. First, what core principle or formula applies to your question?"
-                    "concise" -> "Direct Summary:"
-                    else -> "Here is a structured explanation tailored to ${profile.level}:"
-                }
-                sb.append(
-                    "$lead\n\n" +
-                        "1. Identify the key concept in \"$prompt\".\n" +
-                        "2. Connect it to the syllabus formulas (e.g., conservation laws, calculus rules, or definitions).\n" +
-                        "3. Test your understanding by creating a quick 5-question Mock Exam or Flashcard deck in the Learn tab.\n\n" +
-                        "Tip: You can also type math expressions like `sqrt(144) + 8*3` or upload your own course notes for RAG answers."
-                )
-            }
-        }
-        return sb.toString().trim()
-    }
-
-    /**
-     * Lightweight safe recursive-descent arithmetic evaluator supporting +, -, *, /, ^, (), sqrt(), sin(), cos().
-     */
-    private fun tryEvaluateMath(input: String): Pair<String, String>? {
-        val candidate = input.trim()
-        if (!candidate.matches(Regex("^[0-9.+\\-*/^()\\s a-zA-Z]+$"))) return null
-        if (!candidate.any { it.isDigit() }) return null
-        if (!candidate.any { it in "+-*/^" || candidate.contains("sqrt(", true) }) return null
-        return try {
-            val value = MathParser(candidate).parse()
-            if (value.isNaN() || value.isInfinite()) null
-            else {
-                val formatted = if (value % 1.0 == 0.0) value.toLong().toString()
-                else String.format("%.4f", value).trimEnd('0').trimEnd('.')
-                candidate to formatted
-            }
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private class MathParser(private val str: String) {
-        private var pos = -1
-        private var ch = 0
-
-        private fun nextChar() {
-            ch = if (++pos < str.length) str[pos].code else -1
-        }
-
-        private fun eat(charToEat: Int): Boolean {
-            while (ch == ' '.code) nextChar()
-            if (ch == charToEat) {
-                nextChar()
-                return true
-            }
-            return false
-        }
-
-        fun parse(): Double {
-            nextChar()
-            val x = parseExpression()
-            if (pos < str.length) throw IllegalArgumentException("Unexpected char")
-            return x
-        }
-
-        private fun parseExpression(): Double {
-            var x = parseTerm()
-            while (true) {
-                when {
-                    eat('+'.code) -> x += parseTerm()
-                    eat('-'.code) -> x -= parseTerm()
-                    else -> return x
-                }
-            }
-        }
-
-        private fun parseTerm(): Double {
-            var x = parseFactor()
-            while (true) {
-                when {
-                    eat('*'.code) -> x *= parseFactor()
-                    eat('/'.code) -> x /= parseFactor()
-                    else -> return x
-                }
-            }
-        }
-
-        private fun parseFactor(): Double {
-            if (eat('+'.code)) return parseFactor()
-            if (eat('-'.code)) return -parseFactor()
-            var x: Double
-            val startPos = pos
-            if (eat('('.code)) {
-                x = parseExpression()
-                if (!eat(')'.code)) throw IllegalArgumentException("Missing )")
-            } else if ((ch in '0'.code..'9'.code) || ch == '.'.code) {
-                while ((ch in '0'.code..'9'.code) || ch == '.'.code) nextChar()
-                x = str.substring(startPos, pos).toDouble()
-            } else if (ch in 'a'.code..'z'.code || ch in 'A'.code..'Z'.code) {
-                while (ch in 'a'.code..'z'.code || ch in 'A'.code..'Z'.code) nextChar()
-                val func = str.substring(startPos, pos).lowercase()
-                x = parseFactor()
-                x = when (func) {
-                    "sqrt" -> sqrt(x)
-                    "sin" -> sin(Math.toRadians(x))
-                    "cos" -> cos(Math.toRadians(x))
-                    else -> throw IllegalArgumentException("Unknown func: $func")
-                }
+        updateAndCache { s ->
+            val exists = s.conversations.any { it.id == tempConvId }
+            val updatedList = if (!exists) {
+                listOf(
+                    Conversation(
+                        id = tempConvId,
+                        title = effectivePrompt.take(40),
+                        subject = s.profile.subjects.firstOrNull(),
+                        messages = listOf(userMsg, assistantPlaceholder)
+                    )
+                ) + s.conversations
             } else {
-                throw IllegalArgumentException("Unexpected char")
+                s.conversations.map { c ->
+                    if (c.id == tempConvId) c.copy(messages = c.messages + userMsg + assistantPlaceholder) else c
+                }
             }
-            if (eat('^'.code)) x = x.pow(parseFactor())
-            return x
+            s.copy(conversations = updatedList, activeConversationId = tempConvId, aiSending = true, errorMessage = null)
         }
-    }
 
-    // --- JSON helpers ---
+        var activeConvId = tempConvId
+        var streamFailed = false
 
-    private fun jsonArrayToList(arr: JSONArray?): List<String> {
-        if (arr == null) return emptyList()
-        return (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotEmpty() } }
-    }
-
-    private fun serializePlans(plans: List<StudyPlan>): JSONArray = JSONArray().apply {
-        plans.forEach { p ->
-            put(JSONObject().apply {
-                put("id", p.id)
-                put("planType", p.planType)
-                put("title", p.title)
-                put("subject", p.subject)
-                put("examSystem", p.examSystem)
-                put("examLevel", p.examLevel)
-                put("targetDateMillis", p.targetDateMillis)
-                put("dailyMinutes", p.dailyMinutes)
-                put("isActive", p.isActive)
-                put("sessions", JSONArray().apply {
-                    p.sessions.forEach { s ->
-                        put(JSONObject().apply {
-                            put("id", s.id)
-                            put("planId", s.planId)
-                            put("title", s.title)
-                            put("subject", s.subject)
-                            put("topic", s.topic)
-                            put("objective", s.objective)
-                            put("scheduledForMillis", s.scheduledForMillis)
-                            put("durationMinutes", s.durationMinutes)
-                            put("status", s.status)
-                        })
+        try {
+            sseClient.streamChat(
+                ChatRequestDto(
+                    message = effectivePrompt,
+                    conversationId = serverConvId,
+                    subject = _state.value.profile.subjects.firstOrNull()
+                )
+            ) { ev ->
+                when (ev) {
+                    is SseChatEvent.Meta -> {
+                        val realConvId = ev.conversationId
+                        _state.update { s ->
+                            val updatedConvs = s.conversations.map { c ->
+                                if (c.id == activeConvId) c.copy(id = realConvId) else c
+                            }
+                            activeConvId = realConvId
+                            s.copy(conversations = updatedConvs, activeConversationId = realConvId)
+                        }
                     }
-                })
-            })
+                    is SseChatEvent.Token -> {
+                        _state.update { s ->
+                            s.copy(
+                                conversations = s.conversations.map { c ->
+                                    if (c.id != activeConvId) c
+                                    else c.copy(
+                                        messages = c.messages.map { m ->
+                                            if (m.id == assistantMsgId) m.copy(content = m.content + ev.text) else m
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    }
+                    is SseChatEvent.Done -> {
+                        val realConvId = ev.conversationId ?: activeConvId
+                        val tools = ev.toolsUsed.map { ToolUsage(it.first, it.second) }
+                        updateAndCache { s ->
+                            s.copy(
+                                aiSending = false,
+                                activeConversationId = realConvId,
+                                conversations = s.conversations.map { c ->
+                                    if (c.id != activeConvId && c.id != realConvId) c
+                                    else c.copy(
+                                        id = realConvId,
+                                        messages = c.messages.map { m ->
+                                            if (m.id == assistantMsgId) {
+                                                m.copy(
+                                                    id = ev.messageId.ifBlank { assistantMsgId },
+                                                    toolsUsed = tools
+                                                )
+                                            } else m
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    }
+                    is SseChatEvent.Error -> {
+                        streamFailed = true
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            streamFailed = true
         }
-    }
 
-    private fun parsePlans(arr: JSONArray?): List<StudyPlan>? {
-        if (arr == null) return null
-        return (0 until arr.length()).map { i ->
-            val p = arr.getJSONObject(i)
-            val sArr = p.optJSONArray("sessions")
-            val sessions = if (sArr != null) {
-                (0 until sArr.length()).map { j ->
-                    val s = sArr.getJSONObject(j)
-                    StudySession(
-                        id = s.getString("id"),
-                        planId = s.getString("planId"),
-                        title = s.getString("title"),
-                        subject = s.getString("subject"),
-                        topic = s.getString("topic"),
-                        objective = s.getString("objective"),
-                        scheduledForMillis = s.getLong("scheduledForMillis"),
-                        durationMinutes = s.getInt("durationMinutes"),
-                        status = s.getString("status")
+        if (streamFailed || _state.value.aiSending) {
+            try {
+                val fallback = apiClient.api.sendAiChat(
+                    ChatRequestDto(
+                        message = effectivePrompt,
+                        conversationId = serverConvId,
+                        subject = _state.value.profile.subjects.firstOrNull()
+                    )
+                )
+                val mappedReply = ApiModelsMapper.toChatMessage(fallback.message)
+                updateAndCache { s ->
+                    s.copy(
+                        aiSending = false,
+                        activeConversationId = fallback.conversationId,
+                        conversations = s.conversations.map { c ->
+                            if (c.id == activeConvId) {
+                                c.copy(
+                                    id = fallback.conversationId,
+                                    messages = c.messages.filterNot { it.id == assistantMsgId } + mappedReply
+                                )
+                            } else c
+                        }
                     )
                 }
-            } else emptyList()
-            StudyPlan(
-                id = p.getString("id"),
-                planType = p.getString("planType"),
-                title = p.getString("title"),
-                subject = p.getString("subject"),
-                examSystem = p.getString("examSystem"),
-                examLevel = p.getString("examLevel"),
-                targetDateMillis = p.getLong("targetDateMillis"),
-                dailyMinutes = p.getInt("dailyMinutes"),
-                isActive = p.getBoolean("isActive"),
-                sessions = sessions
-            )
-        }
-    }
-
-    private fun serializeDecks(decks: List<Deck>): JSONArray = JSONArray().apply {
-        decks.forEach { d ->
-            put(JSONObject().apply {
-                put("id", d.id)
-                put("title", d.title)
-                put("subject", d.subject)
-                put("description", d.description)
-                put("cards", JSONArray().apply {
-                    d.cards.forEach { c ->
-                        put(JSONObject().apply {
-                            put("id", c.id)
-                            put("deckId", c.deckId)
-                            put("front", c.front)
-                            put("back", c.back)
-                            put("easeFactor", c.easeFactor)
-                            put("intervalDays", c.intervalDays)
-                            put("repetitions", c.repetitions)
-                            put("nextReviewAtMillis", c.nextReviewAtMillis)
-                        })
-                    }
-                })
-            })
-        }
-    }
-
-    private fun parseDecks(arr: JSONArray?): List<Deck>? {
-        if (arr == null) return null
-        return (0 until arr.length()).map { i ->
-            val d = arr.getJSONObject(i)
-            val cArr = d.optJSONArray("cards")
-            val cards = if (cArr != null) {
-                (0 until cArr.length()).map { j ->
-                    val c = cArr.getJSONObject(j)
-                    Flashcard(
-                        id = c.getString("id"),
-                        deckId = c.getString("deckId"),
-                        front = c.getString("front"),
-                        back = c.getString("back"),
-                        easeFactor = c.getDouble("easeFactor"),
-                        intervalDays = c.getInt("intervalDays"),
-                        repetitions = c.getInt("repetitions"),
-                        nextReviewAtMillis = c.getLong("nextReviewAtMillis")
+            } catch (e: Exception) {
+                val msg = extractErrorMessage(e)
+                updateAndCache { s ->
+                    s.copy(
+                        aiSending = false,
+                        errorMessage = msg,
+                        conversations = s.conversations.map { c ->
+                            if (c.id == activeConvId) {
+                                c.copy(
+                                    messages = c.messages.map { m ->
+                                        if (m.id == assistantMsgId && m.content.isBlank()) {
+                                            m.copy(content = "Connection error: $msg")
+                                        } else m
+                                    }
+                                )
+                            } else c
+                        }
                     )
                 }
-            } else emptyList()
-            Deck(
-                id = d.getString("id"),
-                title = d.getString("title"),
-                subject = d.getString("subject"),
-                description = d.getString("description"),
-                cards = cards
-            )
-        }
-    }
-
-    private fun serializeDocuments(docs: List<ContributedDocument>): JSONArray = JSONArray().apply {
-        docs.forEach { doc ->
-            put(JSONObject().apply {
-                put("id", doc.id)
-                put("title", doc.title)
-                put("subject", doc.subject)
-                put("examSystem", doc.examSystem)
-                put("examLevel", doc.examLevel)
-                put("description", doc.description)
-                put("contentText", doc.contentText)
-                put("fileName", doc.fileName)
-                put("status", doc.status)
-                put("creditsAwarded", doc.creditsAwarded)
-                put("createdAtMillis", doc.createdAtMillis)
-            })
-        }
-    }
-
-    private fun parseDocuments(arr: JSONArray?): List<ContributedDocument>? {
-        if (arr == null) return null
-        return (0 until arr.length()).map { i ->
-            val d = arr.getJSONObject(i)
-            ContributedDocument(
-                id = d.getString("id"),
-                title = d.getString("title"),
-                subject = d.getString("subject"),
-                examSystem = d.getString("examSystem"),
-                examLevel = d.getString("examLevel"),
-                description = d.getString("description"),
-                contentText = d.getString("contentText"),
-                fileName = d.getString("fileName"),
-                status = d.getString("status"),
-                creditsAwarded = d.getInt("creditsAwarded"),
-                createdAtMillis = d.getLong("createdAtMillis")
-            )
-        }
-    }
-
-    private fun serializeMockExams(exams: List<MockExam>): JSONArray = JSONArray().apply {
-        exams.forEach { e ->
-            put(JSONObject().apply {
-                put("id", e.id)
-                put("title", e.title)
-                put("subject", e.subject)
-                put("academicLevel", e.academicLevel)
-                put("difficulty", e.difficulty)
-                put("durationMinutes", e.durationMinutes)
-                put("status", e.status)
-                if (e.score != null) put("score", e.score)
-                if (e.correctCount != null) put("correctCount", e.correctCount)
-                if (e.wrongCount != null) put("wrongCount", e.wrongCount)
-                if (e.skippedCount != null) put("skippedCount", e.skippedCount)
-                if (e.feedbackSummary != null) put("feedbackSummary", e.feedbackSummary)
-                put("createdAtMillis", e.createdAtMillis)
-                val ansObj = JSONObject()
-                e.answers.forEach { (k, v) -> ansObj.put(k, v) }
-                put("answers", ansObj)
-                put("questions", JSONArray().apply {
-                    e.questions.forEach { q ->
-                        put(JSONObject().apply {
-                            put("id", q.id)
-                            put("position", q.position)
-                            put("topic", q.topic)
-                            put("questionType", q.questionType)
-                            put("prompt", q.prompt)
-                            put("correctAnswer", q.correctAnswer)
-                            put("explanation", q.explanation)
-                            put("points", q.points)
-                            put("options", JSONArray().apply {
-                                q.options.forEach { opt ->
-                                    put(JSONObject().apply {
-                                        put("label", opt.label)
-                                        put("text", opt.text)
-                                    })
-                                }
-                            })
-                        })
-                    }
-                })
-            })
-        }
-    }
-
-    private fun parseMockExams(arr: JSONArray?): List<MockExam>? {
-        if (arr == null) return null
-        return (0 until arr.length()).map { i ->
-            val e = arr.getJSONObject(i)
-            val ansMap = mutableMapOf<String, String>()
-            val ansObj = e.optJSONObject("answers")
-            if (ansObj != null) {
-                ansObj.keys().forEach { k -> ansMap[k] = ansObj.getString(k) }
             }
-            val qArr = e.getJSONArray("questions")
-            val qs = (0 until qArr.length()).map { j ->
-                val q = qArr.getJSONObject(j)
-                val optArr = q.getJSONArray("options")
-                val opts = (0 until optArr.length()).map { k ->
-                    val o = optArr.getJSONObject(k)
-                    MockQuestionOption(o.getString("label"), o.getString("text"))
+        }
+    }
+
+    suspend fun sendAiVisionMessage(prompt: String, imageBase64: String, mimeType: String, attachmentName: String) =
+        withContext(Dispatchers.IO) {
+            val serverConvId = _state.value.activeConversationId?.takeIf { !it.startsWith("tmp-") }
+            val userMsg = ChatMessage(
+                id = "tmp-u-${UUID.randomUUID().toString().take(8)}",
+                role = "user",
+                content = prompt.ifBlank { "Analyze this exercise photo" },
+                attachmentLabel = attachmentName
+            )
+            val convKey = serverConvId ?: "tmp-v-${UUID.randomUUID().toString().take(8)}"
+
+            _state.update { s ->
+                val exists = s.conversations.any { it.id == convKey }
+                val updated = if (!exists) {
+                    listOf(Conversation(id = convKey, title = "Photo exercise", messages = listOf(userMsg))) + s.conversations
+                } else {
+                    s.conversations.map { c -> if (c.id == convKey) c.copy(messages = c.messages + userMsg) else c }
                 }
-                MockQuestion(
-                    id = q.getString("id"),
-                    position = q.getInt("position"),
-                    topic = q.getString("topic"),
-                    questionType = q.getString("questionType"),
-                    prompt = q.getString("prompt"),
-                    options = opts,
-                    correctAnswer = q.getString("correctAnswer"),
-                    explanation = q.getString("explanation"),
-                    points = q.optInt("points", 1)
+                s.copy(conversations = updated, activeConversationId = convKey, aiSending = true, errorMessage = null)
+            }
+
+            try {
+                val resp = apiClient.api.sendAiVision(
+                    VisionAnalyzeRequestDto(
+                        imageBase64 = imageBase64,
+                        imageMimeType = mimeType,
+                        prompt = prompt,
+                        subject = _state.value.profile.subjects.firstOrNull(),
+                        conversationId = serverConvId
+                    )
+                )
+                val reply = ApiModelsMapper.toChatMessage(resp.message)
+                updateAndCache { s ->
+                    s.copy(
+                        aiSending = false,
+                        activeConversationId = resp.conversationId,
+                        conversations = s.conversations.map { c ->
+                            if (c.id == convKey) c.copy(id = resp.conversationId, messages = c.messages + reply) else c
+                        }
+                    )
+                }
+            } catch (e: Exception) {
+                val msg = extractErrorMessage(e)
+                _state.update { it.copy(aiSending = false, errorMessage = msg) }
+            }
+        }
+
+    suspend fun sendAiVoiceTranscript(transcript: String) = withContext(Dispatchers.IO) {
+        val clean = transcript.trim()
+        if (clean.isEmpty()) return@withContext
+        val serverConvId = _state.value.activeConversationId?.takeIf { !it.startsWith("tmp-") }
+        val userMsg = ChatMessage(
+            id = "tmp-u-${UUID.randomUUID().toString().take(8)}",
+            role = "user",
+            content = clean,
+            attachmentLabel = "Voice"
+        )
+        val convKey = serverConvId ?: "tmp-voice-${UUID.randomUUID().toString().take(8)}"
+
+        _state.update { s ->
+            val exists = s.conversations.any { it.id == convKey }
+            val updated = if (!exists) {
+                listOf(Conversation(id = convKey, title = clean.take(40), messages = listOf(userMsg))) + s.conversations
+            } else {
+                s.conversations.map { c -> if (c.id == convKey) c.copy(messages = c.messages + userMsg) else c }
+            }
+            s.copy(conversations = updated, activeConversationId = convKey, aiSending = true, errorMessage = null)
+        }
+
+        try {
+            val resp = apiClient.api.sendAiVoice(
+                VoiceAnalyzeRequestDto(
+                    transcript = clean,
+                    language = _state.value.language.code,
+                    subject = _state.value.profile.subjects.firstOrNull(),
+                    conversationId = serverConvId
+                )
+            )
+            val reply = ApiModelsMapper.toChatMessage(resp.message)
+            updateAndCache { s ->
+                s.copy(
+                    aiSending = false,
+                    activeConversationId = resp.conversationId,
+                    conversations = s.conversations.map { c ->
+                        if (c.id == convKey) c.copy(id = resp.conversationId, messages = c.messages + reply) else c
+                    }
                 )
             }
-            MockExam(
-                id = e.getString("id"),
-                title = e.getString("title"),
-                subject = e.getString("subject"),
-                academicLevel = e.getString("academicLevel"),
-                difficulty = e.getString("difficulty"),
-                durationMinutes = e.getInt("durationMinutes"),
-                status = e.getString("status"),
-                questions = qs,
-                answers = ansMap,
-                score = if (e.has("score")) e.getDouble("score") else null,
-                correctCount = if (e.has("correctCount")) e.getInt("correctCount") else null,
-                wrongCount = if (e.has("wrongCount")) e.getInt("wrongCount") else null,
-                skippedCount = if (e.has("skippedCount")) e.getInt("skippedCount") else null,
-                feedbackSummary = e.optString("feedbackSummary").takeIf { it.isNotEmpty() },
-                createdAtMillis = e.optLong("createdAtMillis", System.currentTimeMillis())
+            _voicePlayback.tryEmit(VoicePlaybackEvent(resp.ttsText, resp.ttsLocale))
+        } catch (e: Exception) {
+            _state.update { it.copy(aiSending = false, errorMessage = extractErrorMessage(e)) }
+        }
+    }
+
+    // --- Study Groups (REST + WebSockets) ---
+
+    suspend fun createStudyGroup(name: String, subject: String, examLevel: String) = withContext(Dispatchers.IO) {
+        try {
+            val g = apiClient.api.createStudyGroup(
+                StudyGroupCreateDto(
+                    name = name.trim(),
+                    subject = subject.trim().ifBlank { null },
+                    examLevel = examLevel.trim().ifBlank { null }
+                )
+            )
+            val mapped = ApiModelsMapper.toStudyGroup(g, emptyList())
+            updateAndCache { s -> s.copy(studyGroups = listOf(mapped) + s.studyGroups) }
+        } catch (e: Exception) {
+            _state.update { it.copy(errorMessage = extractErrorMessage(e)) }
+        }
+    }
+
+    suspend fun joinStudyGroup(groupId: String) = withContext(Dispatchers.IO) {
+        try {
+            val g = apiClient.api.joinStudyGroup(groupId)
+            updateAndCache { s ->
+                s.copy(
+                    studyGroups = s.studyGroups.map {
+                        if (it.id == groupId) ApiModelsMapper.toStudyGroup(g, it.messages) else it
+                    }
+                )
+            }
+        } catch (e: Exception) {
+            _state.update { it.copy(errorMessage = extractErrorMessage(e)) }
+        }
+    }
+
+    suspend fun openStudyGroupChat(groupId: String) = withContext(Dispatchers.IO) {
+        val group = _state.value.studyGroups.find { it.id == groupId }
+        if (group != null && !group.isMember) {
+            runCatching { apiClient.api.joinStudyGroup(groupId) }
+        }
+        try {
+            val msgs = apiClient.api.listGroupMessages(groupId).map {
+                ApiModelsMapper.toGroupMessage(it, _state.value.profile.id)
+            }
+            updateAndCache { s ->
+                s.copy(
+                    studyGroups = s.studyGroups.map { g ->
+                        if (g.id == groupId) g.copy(isMember = true, messages = msgs) else g
+                    }
+                )
+            }
+        } catch (_: Exception) {
+        }
+
+        groupWsClient.connectStudyGroup(
+            groupId = groupId,
+            onMessage = { dto ->
+                val mapped = ApiModelsMapper.toGroupMessage(dto, _state.value.profile.id)
+                updateAndCache { s ->
+                    s.copy(
+                        studyGroups = s.studyGroups.map { g ->
+                            if (g.id == groupId && g.messages.none { it.id == mapped.id }) {
+                                g.copy(messages = g.messages + mapped)
+                            } else g
+                        }
+                    )
+                }
+            },
+            onPresence = { count ->
+                _state.update { it.copy(activeGroupPresence = count) }
+            }
+        )
+    }
+
+    fun closeStudyGroupChat() {
+        groupWsClient.disconnect()
+    }
+
+    suspend fun sendGroupMessage(groupId: String, content: String) = withContext(Dispatchers.IO) {
+        val trimmed = content.trim()
+        if (trimmed.isEmpty()) return@withContext
+        val sentViaWs = groupWsClient.sendMessage(trimmed)
+        if (!sentViaWs) {
+            try {
+                val posted = apiClient.api.postGroupMessage(groupId, GroupMessageCreateDto(trimmed))
+                val mapped = ApiModelsMapper.toGroupMessage(posted, _state.value.profile.id)
+                updateAndCache { s ->
+                    s.copy(
+                        studyGroups = s.studyGroups.map { g ->
+                            if (g.id == groupId && g.messages.none { it.id == mapped.id }) {
+                                g.copy(messages = g.messages + mapped)
+                            } else g
+                        }
+                    )
+                }
+            } catch (e: Exception) {
+                _state.update { it.copy(errorMessage = extractErrorMessage(e)) }
+            }
+        }
+    }
+
+    // --- Subscriptions & Flutterwave Checkout ---
+
+    suspend fun startSubscriptionCheckout(planCode: String): Result<Pair<String, String>> =
+        withContext(Dispatchers.IO) {
+            _state.update { it.copy(isLoading = true, errorMessage = null) }
+            try {
+                val resp = apiClient.api.startCheckout(CheckoutRequestDto(planCode))
+                _state.update { it.copy(isLoading = false) }
+                Result.success(resp.checkoutUrl to resp.payment.reference)
+            } catch (e: Exception) {
+                val msg = extractErrorMessage(e)
+                _state.update { it.copy(isLoading = false, errorMessage = msg) }
+                Result.failure(Exception(msg))
+            }
+        }
+
+    suspend fun confirmSubscriptionPayment(reference: String): Result<String> =
+        withContext(Dispatchers.IO) {
+            _state.update { it.copy(isLoading = true, errorMessage = null) }
+            try {
+                val res = apiClient.api.confirmPayment(ConfirmRequestDto(reference))
+                refreshAllFromServer()
+                _state.update { it.copy(isLoading = false, infoMessage = res.message) }
+                Result.success(res.message)
+            } catch (e: Exception) {
+                val msg = extractErrorMessage(e)
+                _state.update { it.copy(isLoading = false, errorMessage = msg) }
+                Result.failure(Exception(msg))
+            }
+        }
+
+    suspend fun cancelSubscription() = withContext(Dispatchers.IO) {
+        try {
+            apiClient.api.cancelSubscription()
+            refreshAllFromServer()
+            _state.update { it.copy(infoMessage = "Subscription cancelled") }
+        } catch (e: Exception) {
+            _state.update { it.copy(errorMessage = extractErrorMessage(e)) }
+        }
+    }
+
+    // --- Notifications & Support ---
+
+    suspend fun markNotificationRead(id: String) = withContext(Dispatchers.IO) {
+        runCatching { apiClient.api.markNotificationRead(id) }
+        _state.update { s ->
+            s.copy(
+                notifications = s.notifications.map { n ->
+                    if (n.id == id) n.copy(isRead = true) else n
+                }
             )
         }
     }
 
-    private fun serializeConversations(convos: List<Conversation>): JSONArray = JSONArray().apply {
-        convos.forEach { c ->
-            put(JSONObject().apply {
-                put("id", c.id)
-                put("title", c.title)
-                if (c.subject != null) put("subject", c.subject)
-                put("updatedAtMillis", c.updatedAtMillis)
-                put("messages", JSONArray().apply {
-                    c.messages.forEach { m ->
-                        put(JSONObject().apply {
-                            put("id", m.id)
-                            put("role", m.role)
-                            put("content", m.content)
-                            if (m.attachmentLabel != null) put("attachmentLabel", m.attachmentLabel)
-                            put("createdAtMillis", m.createdAtMillis)
-                            put("toolsUsed", JSONArray().apply {
-                                m.toolsUsed.forEach { t ->
-                                    put(JSONObject().apply {
-                                        put("name", t.name)
-                                        if (t.detail != null) put("detail", t.detail)
-                                    })
-                                }
-                            })
-                        })
-                    }
-                })
-            })
+    suspend fun updateNotificationPreferences(prefs: NotificationPrefs) = withContext(Dispatchers.IO) {
+        _state.update { it.copy(notificationPrefs = prefs) }
+        try {
+            val updated = apiClient.api.updateNotificationPrefs(
+                NotificationPrefUpdateDto(
+                    enabled = prefs.enabled,
+                    sessionReminders = prefs.sessionReminders,
+                    examCountdown = prefs.examCountdown,
+                    streakReminders = prefs.streakReminders
+                )
+            )
+            _state.update { it.copy(notificationPrefs = ApiModelsMapper.toNotificationPrefs(updated)) }
+        } catch (e: Exception) {
+            _state.update { it.copy(errorMessage = extractErrorMessage(e)) }
         }
     }
 
-    private fun parseConversations(arr: JSONArray?): List<Conversation>? {
-        if (arr == null) return null
-        return (0 until arr.length()).map { i ->
-            val c = arr.getJSONObject(i)
-            val mArr = c.getJSONArray("messages")
-            val msgs = (0 until mArr.length()).map { j ->
-                val m = mArr.getJSONObject(j)
-                val tArr = m.optJSONArray("toolsUsed")
-                val tools = if (tArr != null) {
-                    (0 until tArr.length()).map { k ->
-                        val t = tArr.getJSONObject(k)
-                        ToolUsage(t.getString("name"), t.optString("detail").takeIf { it.isNotEmpty() })
-                    }
-                } else emptyList()
-                ChatMessage(
-                    id = m.getString("id"),
-                    role = m.getString("role"),
-                    content = m.getString("content"),
-                    attachmentLabel = m.optString("attachmentLabel").takeIf { it.isNotEmpty() },
-                    toolsUsed = tools,
-                    createdAtMillis = m.optLong("createdAtMillis", System.currentTimeMillis())
-                )
+    suspend fun createSupportTicket(subject: String, description: String, priority: String) =
+        withContext(Dispatchers.IO) {
+            try {
+                val row = apiClient.api.createTicket(TicketCreateDto(subject.trim(), description.trim(), priority))
+                val mapped = ApiModelsMapper.toSupportTicket(row)
+                _state.update { s ->
+                    s.copy(
+                        tickets = listOf(mapped) + s.tickets,
+                        infoMessage = "Support ticket created"
+                    )
+                }
+            } catch (e: Exception) {
+                _state.update { it.copy(errorMessage = extractErrorMessage(e)) }
             }
-            Conversation(
-                id = c.getString("id"),
-                title = c.getString("title"),
-                subject = c.optString("subject").takeIf { it.isNotEmpty() },
-                messages = msgs,
-                updatedAtMillis = c.optLong("updatedAtMillis", System.currentTimeMillis())
-            )
+        }
+
+    suspend fun openSupportTicket(ticketId: String) = withContext(Dispatchers.IO) {
+        try {
+            val detail = apiClient.api.getTicketDetail(ticketId)
+            val mapped = ApiModelsMapper.toSupportTicketDetail(detail)
+            _state.update { it.copy(activeTicket = mapped) }
+        } catch (e: Exception) {
+            _state.update { it.copy(errorMessage = extractErrorMessage(e)) }
         }
     }
+
+    suspend fun replySupportTicket(ticketId: String, body: String) = withContext(Dispatchers.IO) {
+        try {
+            apiClient.api.replyTicket(ticketId, TicketRespondDto(body.trim()))
+            openSupportTicket(ticketId)
+        } catch (e: Exception) {
+            _state.update { it.copy(errorMessage = extractErrorMessage(e)) }
+        }
+    }
+
+    private fun extractErrorMessage(e: Exception): String {
+        if (e is HttpException) {
+            val body = runCatching { e.response()?.errorBody()?.string() }.getOrNull().orEmpty()
+            if (body.isNotBlank()) {
+                val parsed = runCatching {
+                    val obj = JSONObject(body)
+                    obj.optString("detail").takeIf { it.isNotBlank() }
+                        ?: obj.optString("message").takeIf { it.isNotBlank() }
+                }.getOrNull()
+                if (!parsed.isNullOrBlank()) return parsed
+            }
+            return "Server error (${e.code()})"
+        }
+        return e.message ?: "Network error"
+    }
+
+    private data class CachedSnapshot(
+        val profile: UserProfile = UserProfile(),
+        val streakDays: Int = 0,
+        val creditsBalance: Int = 0,
+        val dashboardData: DashboardData? = null,
+        val plans: List<StudyPlan> = emptyList(),
+        val decks: List<Deck> = emptyList(),
+        val mockExams: List<MockExam> = emptyList(),
+        val pastPapers: List<PastPaper> = emptyList(),
+        val documents: List<ContributedDocument> = emptyList(),
+        val studyGroups: List<StudyGroup> = emptyList(),
+        val conversations: List<Conversation> = emptyList()
+    )
 }
